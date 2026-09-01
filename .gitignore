@@ -1,0 +1,12 @@
+.build/
+.build-universal-*/
+.swiftpm/
+DerivedData/
+*.xcuserstate
+*.dSYM/
+CodexFloat.app/
+CodexFloat.dmg
+CodexFloat.dmg.sha256
+.DS_Store
+/artifacts/
+/reports/

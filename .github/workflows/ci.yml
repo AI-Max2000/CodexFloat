@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Toolchain
+        run: swift --version
+      - name: Unit and integration tests
+        run: swift test
+      - name: Address Sanitizer
+        run: swift test --sanitize=address
+      - name: Thread Sanitizer
+        run: swift test --sanitize=thread
+      - name: Release build with warnings as errors
+        run: swift build -c release -Xswiftc -warnings-as-errors
+
+  package:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build Universal 2 app
+        env:
+          CODEX_FLOAT_UNIVERSAL: "1"
+          CODEX_FLOAT_VERSION: "0.1.0"
+          CODEX_FLOAT_BUILD_NUMBER: ${{ github.run_number }}
+        run: ./Scripts/build-app.sh
+      - name: Verify app bundle
+        run: |
+          plutil -lint dist/CodexFloat.app/Contents/Info.plist
+          test -f dist/CodexFloat.app/Contents/Resources/AppIcon.icns
+          codesign --verify --deep --strict dist/CodexFloat.app
+          architectures="$(lipo -archs dist/CodexFloat.app/Contents/MacOS/CodexFloat)"
+          [[ " ${architectures} " == *" arm64 "* ]]
+          [[ " ${architectures} " == *" x86_64 "* ]]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CodexFloat-unsigned-${{ github.sha }}
+          path: dist/CodexFloat.app
+          if-no-files-found: error
+          retention-days: 7

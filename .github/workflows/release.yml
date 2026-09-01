@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version without the v prefix
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    timeout-minutes: 45
+    environment: release
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve version
+        id: version
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${DISPATCH_VERSION}"
+          fi
+          [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          echo "value=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          certificate_path="${RUNNER_TEMP}/developer-id.p12"
+          keychain_path="${RUNNER_TEMP}/codex-float.keychain-db"
+          printf '%s' "${CERTIFICATE_P12}" | base64 --decode > "${certificate_path}"
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${keychain_path}"
+          security import "${certificate_path}" -P "${CERTIFICATE_PASSWORD}" -A -t cert -f pkcs12 -k "${keychain_path}"
+          security set-key-partition-list -S apple-tool:,apple: -k "${KEYCHAIN_PASSWORD}" "${keychain_path}"
+          security list-keychains -d user -s "${keychain_path}"
+
+      - name: Configure notarization
+        env:
+          API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          key_path="${RUNNER_TEMP}/AuthKey_${API_KEY_ID}.p8"
+          printf '%s' "${API_KEY_P8}" | base64 --decode > "${key_path}"
+          xcrun notarytool store-credentials codex-float-ci \
+            --key "${key_path}" \
+            --key-id "${API_KEY_ID}" \
+            --issuer "${API_ISSUER_ID}"
+
+      - name: Build, sign, notarize and checksum
+        env:
+          CODEX_FLOAT_VERSION: ${{ steps.version.outputs.value }}
+          CODEX_FLOAT_BUILD_NUMBER: ${{ github.run_number }}
+          CODEX_FLOAT_BUNDLE_ID: ${{ vars.CODEX_FLOAT_BUNDLE_ID }}
+          CODEX_FLOAT_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          CODEX_FLOAT_NOTARY_PROFILE: codex-float-ci
+        run: ./Scripts/release-app.sh
+
+      - name: Attest DMG
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/CodexFloat.dmg
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          tag="v${VERSION}"
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            git tag "${tag}"
+            git push origin "${tag}"
+          fi
+          gh release create "${tag}" \
+            dist/CodexFloat.dmg \
+            dist/CodexFloat.dmg.sha256 \
+            --verify-tag \
+            --generate-notes \
+            --title "Codex Float ${tag}"
+
+      - name: Remove temporary signing material
+        if: always()
+        env:
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+        run: |
+          security delete-keychain "${RUNNER_TEMP}/codex-float.keychain-db" 2>/dev/null || true
+          rm -f \
+            "${RUNNER_TEMP}/developer-id.p12" \
+            "${RUNNER_TEMP}/AuthKey_${API_KEY_ID}.p8"

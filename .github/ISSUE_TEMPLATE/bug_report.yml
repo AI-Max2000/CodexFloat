@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a reproducible Codex Float problem without sharing private Codex data.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Please remove account identifiers, task titles, post text, and local paths from attachments.
+  - type: input
+    id: version
+    attributes:
+      label: Codex Float version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac model
+      placeholder: macOS 15.6, MacBook Pro M4
+    validations:
+      required: true
+  - type: dropdown
+    id: display-mode
+    attributes:
+      label: Display mode
+      options:
+        - Full quota
+        - Minimal meter
+        - Menu bar quota
+        - Not display-related
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include what you expected and what actually happened.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Paste only the app's redacted diagnostics. Do not attach auth.json, Codex databases, rollouts, or browser data.
+
