@@ -199,7 +199,7 @@ extension FloatingPanelLayoutTests {
           controller.panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
           try await Task.sleep(for: .milliseconds(60))
           let compact = controller.panel.frame
-          let before = try edgePanelImage(controller)
+          let before = try await settledEdgePanelImage(controller)
           let beforePixels = try edgePixels(before)
           controller.setCollapsed(false, animated: true)
           let first = try edgePanelImage(controller)
@@ -215,8 +215,18 @@ extension FloatingPanelLayoutTests {
           try await assertEdgeTransition(controller, compact: compact)
           controller.setCollapsed(true, animated: true)
           try await assertEdgeTransition(controller, compact: compact)
-          let returnedPixels = try edgePixels(edgePanelImage(controller))
-          #expect(returnedPixels == beforePixels, "Resting pixels: \(style), dark=\(dark)")
+          let returned = try await settledEdgePanelImage(controller)
+          let returnedPixels = try edgePixels(returned)
+          let endpointsMatch = returnedPixels == beforePixels
+          if !endpointsMatch {
+            let delta = zip(returnedPixels, beforePixels).map { abs(Int($0) - Int($1)) }
+            print(
+              "Resting mismatch \(style), dark=\(dark): changed=\(delta.filter { $0 != 0 }.count), max=\(delta.max() ?? 0)"
+            )
+            try saveNativeFailureImage(before, name: "\(style)-\(dark)-before")
+            try saveNativeFailureImage(returned, name: "\(style)-\(dark)-returned")
+          }
+          #expect(endpointsMatch, "Resting pixels: \(style), dark=\(dark)")
         }
       }
     }

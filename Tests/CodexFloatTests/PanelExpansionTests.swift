@@ -93,7 +93,7 @@ extension FloatingPanelLayoutTests {
           controller.panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
           try await Task.sleep(for: .milliseconds(30))
           let compact = controller.panel.frame
-          let before = try edgePanelImage(controller)
+          let before = try await settledEdgePanelImage(controller)
           let beforePixels = try edgePixels(before)
           controller.setCollapsed(false, animated: true)
           // Capture without yielding, before the first animated update. The
@@ -148,7 +148,9 @@ extension FloatingPanelLayoutTests {
           }
           controller.setCollapsed(true, animated: true)
           try await assertEdgeTransition(controller, compact: compact)
-          #expect(try edgePixels(edgePanelImage(controller)) == beforePixels)
+          let returnedPixels = try edgePixels(await settledEdgePanelImage(controller))
+          let endpointsMatch = returnedPixels == beforePixels
+          #expect(endpointsMatch)
         }
       }
     }
@@ -341,6 +343,40 @@ extension FloatingPanelLayoutTests {
   let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
   view.cacheDisplay(in: view.bounds, to: bitmap)
   return try #require(bitmap.cgImage)
+}
+
+/// Appearance changes and NSWindow resize callbacks can finish before the
+/// WindowServer has committed its final pixels (especially on hosted Macs).
+/// Wait for a stable baseline/end state; never use this on the first reveal
+/// frame, where capturing synchronously is part of the test contract.
+@MainActor func settledEdgePanelImage(_ controller: FloatingPanelController) async throws -> CGImage
+{
+  let clock = ContinuousClock()
+  let start = clock.now
+  var previous: Data?
+  var stableSamples = 0
+  while start.duration(to: clock.now) < .seconds(3) {
+    let image = try edgePanelImage(controller)
+    let pixels = try edgePixels(image)
+    stableSamples = pixels == previous ? stableSamples + 1 : 0
+    previous = pixels
+    if stableSamples >= 3, start.duration(to: clock.now) >= .milliseconds(350) {
+      return image
+    }
+    try await Task.sleep(for: .milliseconds(32))
+  }
+  throw NativeSnapshotError.didNotSettle
+}
+
+private enum NativeSnapshotError: Error { case didNotSettle }
+
+func saveNativeFailureImage(_ image: CGImage, name: String) throws {
+  let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    .appendingPathComponent("artifacts/native-failures", isDirectory: true)
+  try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+  let data = try #require(
+    NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+  try data.write(to: directory.appendingPathComponent("\(name).png"))
 }
 
 func edgePixels(_ image: CGImage) throws -> Data {
