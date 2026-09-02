@@ -1,0 +1,36 @@
+Codex Float — 未公证预览版 / Unnotarized preview
+
+需要 macOS 14 或更新系统；支持 Apple Silicon 和 Intel。
+本包为 ad-hoc 本地签名，没有 Apple Developer ID 签名或公证。
+请只从 https://github.com/AI-Max2000/CodexFloat/releases 下载。
+
+安装：
+1. 退出正在运行的旧版 Codex Float。
+2. 打开 DMG，将 CodexFloat.app 拖入 Applications（应用程序）。
+   如使用 ZIP，请解压后将应用移入 Applications。
+3. 先核对发布页 SHA256SUMS.txt 中的文件校验值。
+4. 首次打开可能被 macOS Gatekeeper 拦截。仅当确认来源可信，
+   再使用「系统设置 → 隐私与安全性」中针对该应用的允许打开选项。
+   如果系统或组织策略不允许例外，请等待正式公证版本或自行从源码构建。
+   不要关闭 Gatekeeper、关闭 SIP 或批量移除其他应用的安全属性。
+5. 保持本机 Codex 已安装并登录。本工具不会替用户登录或使用额外 Reset。
+
+新功能入口：
+设置 → 浮窗 → 极简进度条，然后在「极简外观」选择竖条、横条、圆环，
+调节高度/长度/直径、粗细和整体缩放。每种样式独立记忆尺寸。
+双额度圆环：外环为 5 小时额度，内环为每周额度（需要实际返回这两个窗口）。
+
+隐藏后可用 Control–Option–C 再次显示（可在设置中修改）。
+本包只包含应用和说明，不包含作者的账号、配置或数据库。
+旧版发布保留在 GitHub Releases；安装旧应用不会自动回滚本机配置或缓存。
+
+English:
+macOS 14+, Universal 2 (Apple Silicon / Intel).
+This is an ad-hoc-signed, NOT Apple-notarized preview. Download only from the
+repository's Releases page, verify SHA256SUMS.txt, quit the previous version,
+and move CodexFloat.app to Applications. If blocked, only consider the specific
+app exception in System Settings > Privacy & Security after verifying trust.
+Do not disable macOS security protections globally. Managed devices may not
+permit exceptions. A locally installed, signed-in Codex is required.
+Settings > Floating window > Minimal meter > Minimal appearance.
+The outer dual ring is 5-hour quota; the inner ring is weekly quota.

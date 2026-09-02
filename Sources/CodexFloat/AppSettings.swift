@@ -24,6 +24,7 @@ final class AppSettings: ObservableObject {
     static let feedEnabled = "feedEnabled"
     static let showResetProbability = "showResetProbability"
     static let quotaDisplayMode = "collapsedDisplayStyle"
+    static let minimalMeterAppearance = "minimalMeterAppearanceV1"
     static let hoverExpansionEnabled = "hoverExpansionEnabled"
     static let hoverCollapseDelay = "hoverCollapseDelay"
     static let showPanelOnLaunch = "showPanelOnLaunch"
@@ -63,7 +64,8 @@ final class AppSettings: ObservableObject {
   @Published var quotaRefreshInterval: Double {
     didSet {
       let allowed = [15.0, 30.0, 60.0, 300.0]
-      let normalized = allowed.min(by: { abs($0 - quotaRefreshInterval) < abs($1 - quotaRefreshInterval) })
+      let normalized =
+        allowed.min(by: { abs($0 - quotaRefreshInterval) < abs($1 - quotaRefreshInterval) })
         ?? 30
       if normalized != quotaRefreshInterval {
         quotaRefreshInterval = normalized
@@ -109,6 +111,15 @@ final class AppSettings: ObservableObject {
   }
   @Published var hoverExpansionEnabled: Bool {
     didSet { defaults.set(hoverExpansionEnabled, forKey: Key.hoverExpansionEnabled) }
+  }
+  @Published var minimalMeterAppearance: MinimalMeterAppearance {
+    didSet {
+      let value = minimalMeterAppearance.normalized
+      if value != minimalMeterAppearance { minimalMeterAppearance = value }
+      if let data = try? JSONEncoder().encode(value) {
+        defaults.set(data, forKey: Key.minimalMeterAppearance)
+      }
+    }
   }
   @Published var hoverCollapseDelay: Double {
     didSet { defaults.set(hoverCollapseDelay, forKey: Key.hoverCollapseDelay) }
@@ -224,15 +235,17 @@ final class AppSettings: ObservableObject {
       Key.recentTaskCount: 3,
       Key.notifyTaskCompletion: true,
     ])
-    appLanguage = AppLanguage(rawValue: defaults.string(forKey: Key.appLanguage) ?? "")
+    appLanguage =
+      AppLanguage(rawValue: defaults.string(forKey: Key.appLanguage) ?? "")
       ?? .simplifiedChinese
     notificationsEnabled = defaults.bool(forKey: Key.notificationsEnabled)
     lowThreshold = defaults.double(forKey: Key.lowThreshold)
     criticalThreshold = defaults.double(forKey: Key.criticalThreshold)
     let storedRefreshInterval = defaults.double(forKey: Key.quotaRefreshInterval)
-    quotaRefreshInterval = [15.0, 30.0, 60.0, 300.0].min(by: {
-      abs($0 - storedRefreshInterval) < abs($1 - storedRefreshInterval)
-    }) ?? 30
+    quotaRefreshInterval =
+      [15.0, 30.0, 60.0, 300.0].min(by: {
+        abs($0 - storedRefreshInterval) < abs($1 - storedRefreshInterval)
+      }) ?? 30
     notifyResetCredits = defaults.bool(forKey: Key.notifyResetCredits)
     notifyExpiringCredits = defaults.bool(forKey: Key.notifyExpiringCredits)
     notifyTibo = defaults.bool(forKey: Key.notifyTibo)
@@ -242,6 +255,10 @@ final class AppSettings: ObservableObject {
     quotaDisplayMode =
       QuotaDisplayMode(rawValue: defaults.string(forKey: Key.quotaDisplayMode) ?? "")
       ?? .standard
+    minimalMeterAppearance =
+      defaults.data(forKey: Key.minimalMeterAppearance)
+      .flatMap { try? JSONDecoder().decode(MinimalMeterAppearance.self, from: $0) }?
+      .normalized ?? MinimalMeterAppearance()
     hoverExpansionEnabled = defaults.bool(forKey: Key.hoverExpansionEnabled)
     hoverCollapseDelay = defaults.double(forKey: Key.hoverCollapseDelay)
     showPanelOnLaunch = defaults.bool(forKey: Key.showPanelOnLaunch)

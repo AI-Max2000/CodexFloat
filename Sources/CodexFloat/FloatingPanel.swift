@@ -21,21 +21,21 @@ private final class FloatingPanelHostingView<Content: View>: NSHostingView<Conte
   }
 
   func configureSurfaceLayer() {
-    configureRoundedTransparentLayer(for: self)
+    configureTransparentLayer(for: self)
     if let superview {
-      // NSWindow owns a private frame view outside NSHostingView. Masking both
-      // layers prevents that rectangular backing layer from flashing at a far corner.
-      configureRoundedTransparentLayer(for: superview)
+      // The frame view must stay transparent as well as the hosting view.
+      // SwiftUI owns the rounded mask; a second AppKit corner mask changes its
+      // antialiasing when the compact entry moves inside a larger backing canvas.
+      configureTransparentLayer(for: superview)
     }
   }
 
-  private func configureRoundedTransparentLayer(for view: NSView) {
+  private func configureTransparentLayer(for view: NSView) {
     view.wantsLayer = true
     view.layerContentsRedrawPolicy = .duringViewResize
     view.layer?.backgroundColor = NSColor.clear.cgColor
     view.layer?.isOpaque = false
-    view.layer?.cornerRadius = FloatingPanelLayout.panelCornerRadius
-    view.layer?.cornerCurve = .continuous
+    view.layer?.cornerRadius = 0
     view.layer?.masksToBounds = true
   }
 }
@@ -52,8 +52,12 @@ final class PanelUIState: ObservableObject {
   @Published var isCollapsing = false
   @Published var isExpanding = false
   @Published var expandedCanvasSize = NSSize(width: 340, height: 260)
+  @Published var expansionDirection = PanelExpansionDirection()
   @Published var revealProgress: CGFloat
   @Published var menuBarPresentationProgress: CGFloat = 1
+  // Applied only between transitions. Settings edits must not change a liquid
+  // animation's seed halfway through its flight.
+  @Published var minimalMeterAppearance = MinimalMeterAppearance()
 
   init(defaults: UserDefaults = .standard, initiallyCollapsed: Bool) {
     self.defaults = defaults
@@ -109,6 +113,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   private var collapseTask: Task<Void, Never>?
   private var hoverSettingSubscription: AnyCancellable?
   private var displayModeSubscription: AnyCancellable?
+  private var minimalAppearanceSubscription: AnyCancellable?
   private var windowFollowingSubscription: AnyCancellable?
   private var feedbackSubscription: AnyCancellable?
   private var feedbackPresentationIsActive = false
@@ -124,7 +129,8 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   private var minimalDragVisibleFrame: NSRect?
   private var isDraggingMinimalBar = false
   private var suppressMinimalHoverUntilExit = false
-  private var isAligningStandardCollapsedFrame = false
+  private var isApplyingPanelLayout = false
+  private var hasLockedExpansionDirection = false
   private var userMoveIsInProgress = false
   private var userResizeIsInProgress = false
   private var pendingUserPlacement: PendingUserPlacement?
@@ -166,6 +172,9 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       defer: false
     )
     super.init()
+    state.minimalMeterAppearance = model.settings.minimalMeterAppearance.normalized
+    isApplyingPanelLayout = true
+    defer { isApplyingPanelLayout = false }
 
     panel.delegate = self
     panel.level = .floating
@@ -213,17 +222,22 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
         defaultSize: Size.expanded,
         minimumWidth: Size.minimumExpanded.width,
         maximumWidth: Size.maximumExpanded.width,
-        initialFrame: CodexInitialPanelPlacement.frame(panelSize: Size.expanded)
+        initialFrame: CodexInitialPanelPlacement.frame(panelSize: collapsedSize),
+        compactSize: collapsedSize
       )
     } else {
       panel.setFrame(CodexInitialPanelPlacement.frame(panelSize: Size.expanded), display: false)
     }
     expandedSize = NSSize(
-      width: min(Size.maximumExpanded.width, max(Size.minimumExpanded.width, panel.frame.width)),
-      height: Size.expanded.height
+      width: min(
+        Size.maximumExpanded.width,
+        max(
+          Size.minimumExpanded.width,
+          placement.preferredExpandedWidth(for: activePlacementMode, fallback: Size.expanded.width))
+      ),
+      height: preferredExpandedHeight
     )
     state.expandedCanvasSize = expandedSize
-    preferredExpandedHeight = Size.expanded.height
     if state.isCollapsed {
       panel.styleMask.remove(.resizable)
       if model.settings.quotaDisplayMode == .minimal {
@@ -234,9 +248,10 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       frame.size = collapsedSize
       panel.setFrame(frame, display: false)
       placement.clampToAvailableScreens(panel: panel)
-      alignStandardCollapsedFrameIfNeeded()
       collapsedRestingFrame = panel.frame
     } else {
+      collapsedRestingFrame = PanelExpansionGeometry.compactFrame(
+        in: panel.frame, size: collapsedSize, direction: .init())
       resize(to: expandedSize, animated: false)
     }
 
@@ -247,6 +262,10 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     displayModeSubscription = model.settings.$quotaDisplayMode.dropFirst().sink {
       [weak self] _ in
       Task { @MainActor [weak self] in self?.applyDisplayMode() }
+    }
+    minimalAppearanceSubscription = model.settings.$minimalMeterAppearance.dropFirst().sink {
+      [weak self] _ in
+      Task { @MainActor [weak self] in self?.applyMinimalAppearance() }
     }
     windowFollowingSubscription = model.settings.$followCodexWindow.dropFirst().sink {
       [weak self] _ in
@@ -398,15 +417,18 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   func setCollapsed(_ shouldCollapse: Bool, animated: Bool = true) {
     guard state.isCollapsed != shouldCollapse else { return }
     flushPendingPlacementSave()
-    let wasExpanding = state.isExpanding
     let wasCollapsing = state.isCollapsing
     cancelSurfaceTransition()
     surfaceTransitionGeneration &+= 1
     let transitionGeneration = surfaceTransitionGeneration
     let shouldAnimate = animated && !reduceMotionProvider()
+    // Resizing the backing window is not a user move. In particular, AppKit's
+    // didMove/didResize callbacks must not overwrite the saved compact anchor.
+    let wasApplyingLayout = isApplyingPanelLayout
+    isApplyingPanelLayout = true
+    defer { isApplyingPanelLayout = wasApplyingLayout }
     if shouldCollapse {
       state.expandedCanvasSize = panel.frame.size
-      if !wasExpanding { expandedSize = panel.frame.size }
       state.isExpanding = false
       state.isCollapsing = shouldAnimate
       state.isCollapsed = true
@@ -426,16 +448,19 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
           // Codex may have moved while the liquid mask was closing. Resolve the
           // live anchor here instead of jumping back to a captured first frame.
           let finalFrame = self.resolvedCollapsedRestingFrame()
-          self.panel.setFrame(finalFrame, display: true, animate: false)
+          self.applyPanelFrame(finalFrame)
           self.setRevealProgress(0, expanding: false, animated: false)
           self.state.isCollapsing = false
           self.collapsedRestingFrame = finalFrame
+          self.hasLockedExpansionDirection = false
+          self.applyMinimalAppearance()
         }
       } else {
         setRevealProgress(0, expanding: false, animated: false)
         state.isCollapsing = false
         panel.setFrame(finalFrame, display: true, animate: false)
         collapsedRestingFrame = finalFrame
+        hasLockedExpansionDirection = false
       }
     } else {
       if !wasCollapsing { collapsedRestingFrame = panel.frame }
@@ -448,8 +473,8 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       panel.minSize = Size.minimumExpanded
       panel.maxSize = Size.maximumExpanded
       expandedSize.height = preferredExpandedHeight
-      state.expandedCanvasSize = expandedSize
       let finalFrame = targetFrame(for: expandedSize)
+      state.expandedCanvasSize = finalFrame.size
       if shouldAnimate {
         // Direction 14 uses one final-size surface and animates only its liquid
         // clipping boundary. This prevents the expanded hierarchy from being
@@ -467,6 +492,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
           guard let self else { return }
           self.setRevealProgress(1, expanding: true, animated: false)
           self.state.isExpanding = false
+          self.applyMinimalAppearance()
         }
       } else {
         state.isCollapsing = false
@@ -476,10 +502,13 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
         panel.setFrame(finalFrame, display: true, animate: false)
       }
     }
+    if !shouldAnimate { applyMinimalAppearance() }
   }
 
   var isCollapseAnimationInFlight: Bool { state.isCollapsing }
   var isSurfaceTransitionInFlight: Bool { state.isCollapsing || state.isExpanding }
+  var currentExpansionDirection: PanelExpansionDirection { state.expansionDirection }
+  var compactAnchorFrame: NSRect { resolvedCollapsedRestingFrame() }
 
   func handleMinimalDrag(translation: CGSize, ended: Bool) {
     guard !isHiddenForCodexMovement, model.settings.quotaDisplayMode == .minimal,
@@ -519,6 +548,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       mode: activePlacementMode,
       expandedWidth: expandedSize.width
     )
+    applyMinimalAppearance()
   }
 
   func ensureVisible() {
@@ -530,14 +560,23 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       updateCodexWindow(codexWindow)
       return
     }
-    placement.clampToAvailableScreens(panel: panel)
+    // Screen changes constrain only the entry. Details must adapt around it.
+    collapsedRestingFrame = resolvedCollapsedRestingFrame()
+    if state.isCollapsed && !state.isCollapsing {
+      applyPanelFrame(resolvedCollapsedRestingFrame())
+    } else {
+      let frame = targetFrame(for: expandedSize)
+      state.expandedCanvasSize = frame.size
+      applyPanelFrame(frame)
+    }
   }
 
   /// Movement suppression is not a user hide: preserve logical visibility and
   /// tracking, but remove both the rendered surface and its mouse hit target.
   /// Restoring alpha never orders a window in or changes the user's preference.
   func setCodexWindowMoving(_ moving: Bool) {
-    let hidden = moving && model.settings.followCodexWindow
+    let hidden =
+      moving && model.settings.followCodexWindow
       && model.settings.quotaDisplayMode != .menuBar
     guard isHiddenForCodexMovement != hidden else { return }
     isHiddenForCodexMovement = hidden
@@ -573,34 +612,44 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       !(userMoveIsInProgress && NSEvent.pressedMouseButtons & 1 == 1)
     else { return }
     if windowPinOffset == nil {
-      windowPinOffset = placement.windowPinOffset(for: activePlacementMode)
-        ?? WindowPinOffset(panelFrame: collapsedRestingFrame ?? panel.frame, windowFrame: window.frame)
+      windowPinOffset =
+        placement.windowPinOffset(for: activePlacementMode)
+        ?? WindowPinOffset(
+          panelFrame: collapsedRestingFrame ?? panel.frame, windowFrame: window.frame)
     }
     guard let offset = windowPinOffset,
       let screen = NSScreen.screens.max(by: {
-        $0.visibleFrame.intersection(window.frame).area < $1.visibleFrame.intersection(window.frame).area
+        $0.visibleFrame.intersection(window.frame).area
+          < $1.visibleFrame.intersection(window.frame).area
       }) ?? NSScreen.main
     else { return }
-    let frame = WindowPinGeometry.frame(
-      offset: offset, windowFrame: window.frame, panelSize: panel.frame.size,
+    let compact = WindowPinGeometry.frame(
+      offset: offset, windowFrame: window.frame, panelSize: collapsedSize,
       expandedSize: NSSize(width: expandedSize.width, height: preferredExpandedHeight),
       visibleFrame: screen.visibleFrame)
-    let deltaX = frame.minX - panel.frame.minX
-    let deltaY = frame.maxY - panel.frame.maxY
-    guard abs(deltaX) > 0.01 || abs(deltaY) > 0.01 else { return }
     isApplyingWindowFollow = true
-    if let resting = collapsedRestingFrame {
-      collapsedRestingFrame = resting.offsetBy(dx: deltaX, dy: deltaY)
+    defer { isApplyingWindowFollow = false }
+    collapsedRestingFrame = compact
+    let frame: NSRect
+    if state.isCollapsed && !state.isCollapsing {
+      frame = compact
+    } else {
+      frame = expansionFrame(
+        compact: compact, size: expandedSize, visibleFrame: screen.visibleFrame)
+      if state.expandedCanvasSize != frame.size { state.expandedCanvasSize = frame.size }
     }
-    // Following is translation only. Move the existing composited surface;
-    // don't request an immediate content display or trigger a resize each tick.
-    panel.setFrameOrigin(frame.origin)
-    isApplyingWindowFollow = false
+    guard !frame.approximatelyEquals(panel.frame, tolerance: 0.01) else { return }
+    if frame.size == panel.frame.size {
+      panel.setFrameOrigin(frame.origin)
+    } else {
+      applyPanelFrame(frame)
+    }
   }
 
   private func rememberWindowPin(frame: NSRect) {
     guard model.settings.followCodexWindow, activePlacementMode != .menuBar,
-      let codexWindow else { return }
+      let codexWindow
+    else { return }
     let offset = WindowPinOffset(panelFrame: frame, windowFrame: codexWindow.frame)
     windowPinOffset = offset
     placement.saveWindowPinOffset(offset, for: activePlacementMode)
@@ -612,18 +661,17 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   }
 
   func windowWillMove(_ notification: Notification) {
-    guard !isApplyingWindowFollow, activePlacementMode != .menuBar,
+    guard !isApplyingWindowFollow, !isApplyingPanelLayout, activePlacementMode != .menuBar,
       NSEvent.pressedMouseButtons & 1 == 1
     else { return }
     userMoveIsInProgress = true
   }
 
   func windowDidMove(_ notification: Notification) {
-    guard !isApplyingWindowFollow else { return }
+    guard !isApplyingWindowFollow, !isApplyingPanelLayout else { return }
     guard model.settings.quotaDisplayMode != .menuBar else { return }
     guard !state.isCollapsing else { return }
     guard !isDraggingMinimalBar else { return }
-    alignStandardCollapsedFrameIfNeeded()
     synchronizeCollapsedAnchorWithCurrentPanel()
     if NSEvent.pressedMouseButtons & 1 == 0 { userMoveIsInProgress = false }
     if userMoveIsInProgress {
@@ -632,8 +680,10 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   }
 
   func windowDidResize(_ notification: Notification) {
-    guard !isApplyingWindowFollow else { return }
-    if !state.isCollapsed { expandedSize = panel.frame.size }
+    guard !isApplyingWindowFollow, !isApplyingPanelLayout else { return }
+    if !state.isCollapsed, userResizeIsInProgress || panel.inLiveResize {
+      expandedSize.width = panel.frame.width
+    }
     if !state.isCollapsed, !state.isExpanding, !state.isCollapsing {
       state.expandedCanvasSize = panel.frame.size
     }
@@ -658,14 +708,49 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
 
   func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
     guard !state.isCollapsed else { return collapsedSize }
-    return NSSize(width: frameSize.width, height: preferredExpandedHeight)
+    return NSSize(width: frameSize.width, height: panel.frame.height)
   }
 
   private var collapsedSize: NSSize {
-    Size.collapsed(for: model.settings.quotaDisplayMode)
+    model.settings.quotaDisplayMode == .minimal
+      ? state.minimalMeterAppearance.collapsedSize
+      : Size.collapsed(for: model.settings.quotaDisplayMode)
+  }
+
+  private func applyMinimalAppearance() {
+    guard !isSurfaceTransitionInFlight, !isDraggingMinimalBar else { return }
+    let appearance = model.settings.minimalMeterAppearance.normalized
+    guard appearance != state.minimalMeterAppearance else { return }
+    let compact = resolvedCollapsedRestingFrame()
+    let screen = screenForCompactAnchor()?.visibleFrame
+    var transaction = Transaction(animation: nil)
+    transaction.disablesAnimations = true
+    withTransaction(transaction) {
+      state.minimalMeterAppearance = appearance
+      guard model.settings.quotaDisplayMode == .minimal else { return }
+      let resized = NSRect(
+        x: compact.minX, y: compact.maxY - collapsedSize.height,
+        width: collapsedSize.width, height: collapsedSize.height)
+      collapsedRestingFrame =
+        screen.map { PanelPlacementGeometry.clamped(resized, to: $0) } ?? resized
+      if state.isCollapsed {
+        applyPanelFrame(resolvedCollapsedRestingFrame())
+      } else {
+        let frame = targetFrame(for: expandedSize)
+        state.expandedCanvasSize = frame.size
+        applyPanelFrame(frame)
+      }
+    }
+    if model.settings.quotaDisplayMode == .minimal {
+      // A user-edited size may be clamped at a screen edge. Remember that new
+      // anchor too, otherwise the next host-window update or relaunch jumps.
+      schedulePlacementSave()
+    }
   }
 
   private func applyDisplayMode() {
+    isApplyingPanelLayout = true
+    defer { isApplyingPanelLayout = false }
     collapseTask?.cancel()
     menuBarPresentationTask?.cancel()
     menuBarPresentationTask = nil
@@ -678,6 +763,9 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     isDraggingMinimalBar = false
     suppressMinimalHoverUntilExit = false
     collapsedRestingFrame = nil
+    hasLockedExpansionDirection = false
+    state.expansionDirection = .init()
+    state.minimalMeterAppearance = model.settings.minimalMeterAppearance.normalized
     let newMode = model.settings.quotaDisplayMode
     activePlacementMode = newMode
     if newMode == .menuBar { setCodexWindowMoving(false) }
@@ -705,7 +793,6 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       panel.styleMask.remove(.resizable)
       let frame = targetFrame(for: collapsedSize)
       panel.setFrame(frame, display: true, animate: false)
-      alignStandardCollapsedFrameIfNeeded()
       collapsedRestingFrame = panel.frame
     } else {
       panel.styleMask.insert(.resizable)
@@ -754,37 +841,56 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     guard abs(preferredExpandedHeight - clampedHeight) > 0.5 else { return }
     preferredExpandedHeight = clampedHeight
     expandedSize.height = clampedHeight
-    guard !state.isCollapsed, !state.isExpanding else { return }
-    state.expandedCanvasSize = expandedSize
+    guard !state.isCollapsed, !state.isExpanding, !state.isCollapsing else { return }
     resize(to: expandedSize, animated: false)
   }
 
   private func resize(to size: NSSize, animated: Bool) {
     let frame = targetFrame(for: size)
-    panel.setFrame(frame, display: true, animate: animated)
+    state.expandedCanvasSize = frame.size
+    applyPanelFrame(frame, animated: animated)
     if menuBarAnchorFrame != nil {
       repositionBelowMenuBarAnchor()
-    } else {
-      ensureVisible()
     }
+  }
+
+  private func applyPanelFrame(_ frame: NSRect, animated: Bool = false) {
+    let wasApplying = isApplyingPanelLayout
+    isApplyingPanelLayout = true
+    defer { isApplyingPanelLayout = wasApplying }
+    panel.setFrame(frame, display: true, animate: animated)
   }
 
   private func targetFrame(for size: NSSize) -> NSRect {
     if menuBarAnchorFrame == nil,
-      let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(panel.frame) })
-        ?? NSScreen.main
+      let screen = screenForCompactAnchor()
     {
-      return FloatingPanelLayout.anchoredResizeFrame(
-        currentFrame: panel.frame,
-        targetSize: size,
-        visibleFrame: screen.visibleFrame
-      )
+      let compact = resolvedCollapsedRestingFrame()
+      if size == collapsedSize { return compact }
+      return expansionFrame(compact: compact, size: size, visibleFrame: screen.visibleFrame)
     }
 
     var proposed = panel.frame
     proposed.origin.y += proposed.height - size.height
     proposed.size = size
     return proposed
+  }
+
+  private func screenForCompactAnchor() -> NSScreen? {
+    let compact = collapsedRestingFrame ?? panel.frame
+    let best = NSScreen.screens.max {
+      $0.visibleFrame.intersection(compact).area < $1.visibleFrame.intersection(compact).area
+    }
+    return best.flatMap { $0.visibleFrame.intersects(compact) ? $0 : nil } ?? NSScreen.main
+  }
+
+  private func expansionFrame(compact: NSRect, size: NSSize, visibleFrame: NSRect) -> NSRect {
+    let result = PanelExpansionGeometry.resolve(
+      compactFrame: compact, preferredSize: size, visibleFrame: visibleFrame,
+      lockedDirection: hasLockedExpansionDirection ? state.expansionDirection : nil)
+    state.expansionDirection = result.direction
+    hasLockedExpansionDirection = true
+    return result.frame
   }
 
   private func setRevealProgress(
@@ -848,46 +954,12 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   }
 
   private func resolvedCollapsedRestingFrame() -> NSRect {
-    let rememberedFrame = collapsedRestingFrame ?? targetFrame(for: collapsedSize)
-    let visibleFrame =
-      NSScreen.screens.first(where: {
-        $0.visibleFrame.intersects(rememberedFrame)
-      })?.visibleFrame ?? NSScreen.main?.visibleFrame
-    guard let visibleFrame else { return rememberedFrame }
-    let resizedFrame = FloatingPanelLayout.anchoredResizeFrame(
-      currentFrame: rememberedFrame,
-      targetSize: collapsedSize,
-      visibleFrame: visibleFrame
-    )
-    guard model.settings.quotaDisplayMode == .standard else { return resizedFrame }
-    return FloatingPanelLayout.standardCollapsedAnchorFrame(
-      currentFrame: resizedFrame,
-      expandedSize: NSSize(width: expandedSize.width, height: preferredExpandedHeight),
-      visibleFrame: visibleFrame
-    )
-  }
-
-  private func alignStandardCollapsedFrameIfNeeded() {
-    guard model.settings.quotaDisplayMode == .standard,
-      state.isCollapsed,
-      !isAligningStandardCollapsedFrame
-    else { return }
-    let currentFrame = panel.frame
-    let screen =
-      NSScreen.screens.max { lhs, rhs in
-        lhs.visibleFrame.intersection(currentFrame).area
-          < rhs.visibleFrame.intersection(currentFrame).area
-      } ?? NSScreen.main
-    guard let visibleFrame = screen?.visibleFrame else { return }
-    let alignedFrame = FloatingPanelLayout.standardCollapsedAnchorFrame(
-      currentFrame: currentFrame,
-      expandedSize: NSSize(width: expandedSize.width, height: preferredExpandedHeight),
-      visibleFrame: visibleFrame
-    )
-    guard !alignedFrame.approximatelyEquals(currentFrame) else { return }
-    isAligningStandardCollapsedFrame = true
-    panel.setFrame(alignedFrame, display: true, animate: false)
-    isAligningStandardCollapsedFrame = false
+    let rememberedFrame =
+      collapsedRestingFrame
+      ?? PanelExpansionGeometry.compactFrame(
+        in: panel.frame, size: collapsedSize, direction: state.expansionDirection)
+    guard let visibleFrame = screenForCompactAnchor()?.visibleFrame else { return rememberedFrame }
+    return PanelPlacementGeometry.clamped(rememberedFrame, to: visibleFrame)
   }
 
   private func synchronizeCollapsedAnchorWithCurrentPanel() {
@@ -901,18 +973,18 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       collapsedRestingFrame = currentFrame
       return
     }
-    collapsedRestingFrame = FloatingPanelLayout.anchoredResizeFrame(
-      currentFrame: currentFrame,
-      targetSize: collapsedSize,
-      visibleFrame: visibleFrame
-    )
+    let compact = PanelExpansionGeometry.compactFrame(
+      in: currentFrame, size: collapsedSize,
+      direction: state.isCollapsed && !state.isCollapsing ? .init() : state.expansionDirection)
+    collapsedRestingFrame = PanelPlacementGeometry.clamped(compact, to: visibleFrame)
   }
 
   private func schedulePlacementSave() {
     guard activePlacementMode != .menuBar else { return }
-    rememberWindowPin(frame: panel.frame)
+    let compact = resolvedCollapsedRestingFrame()
+    rememberWindowPin(frame: compact)
     pendingUserPlacement = PendingUserPlacement(
-      frame: panel.frame,
+      frame: compact,
       mode: activePlacementMode,
       expandedWidth: expandedSize.width
     )
@@ -953,13 +1025,19 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       defaultSize: restoreSize,
       minimumWidth: Size.minimumExpanded.width,
       maximumWidth: Size.maximumExpanded.width,
-      initialFrame: CodexInitialPanelPlacement.frame(panelSize: restoreSize)
+      initialFrame: CodexInitialPanelPlacement.frame(panelSize: collapsedSize),
+      compactSize: collapsedSize
     )
     expandedSize = NSSize(
-      width: min(Size.maximumExpanded.width, max(Size.minimumExpanded.width, panel.frame.width)),
+      width: min(
+        Size.maximumExpanded.width,
+        max(
+          Size.minimumExpanded.width,
+          placement.preferredExpandedWidth(for: mode, fallback: Size.expanded.width))),
       height: preferredExpandedHeight
     )
     state.expandedCanvasSize = expandedSize
+    collapsedRestingFrame = panel.frame
   }
 
   private func repositionBelowMenuBarAnchor() {

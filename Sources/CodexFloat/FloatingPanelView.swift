@@ -84,13 +84,14 @@ enum FloatingPanelLayout {
 
   static func liquidSurfaceSeedSize(
     canvasSize: NSSize,
-    mode: QuotaDisplayMode
+    mode: QuotaDisplayMode,
+    minimalSize: NSSize = NSSize(width: minimalCollapsedWidth, height: minimalCollapsedHeight)
   ) -> NSSize {
     switch mode {
     case .standard:
       return NSSize(width: collapsedWidth, height: collapsedHeight)
     case .minimal:
-      return NSSize(width: minimalCollapsedWidth, height: minimalCollapsedHeight)
+      return minimalSize
     case .menuBar:
       return menuBarLiquidSeedSize
     }
@@ -126,7 +127,8 @@ enum FloatingPanelLayout {
     in bounds: CGRect,
     progress: CGFloat,
     seedSize: NSSize,
-    anchoredToTrailingEdge: Bool
+    anchoredToTrailingEdge: Bool,
+    anchoredToBottomEdge: Bool = false
   ) -> CGRect {
     let amount = min(1, max(0, progress))
     let seedWidth = min(bounds.width, max(0, seedSize.width))
@@ -134,7 +136,8 @@ enum FloatingPanelLayout {
     let width = seedWidth + (bounds.width - seedWidth) * amount
     let height = seedHeight + (bounds.height - seedHeight) * amount
     let x = anchoredToTrailingEdge ? bounds.maxX - width : bounds.minX
-    return CGRect(x: x, y: bounds.minY, width: width, height: height)
+    let y = anchoredToBottomEdge ? bounds.maxY - height : bounds.minY
+    return CGRect(x: x, y: y, width: width, height: height)
   }
 
   static func draggedFrame(
@@ -272,25 +275,6 @@ enum FloatingPanelLayout {
     return NSRect(origin: NSPoint(x: x, y: y), size: targetSize)
   }
 
-  static func standardCollapsedAnchorFrame(
-    currentFrame: NSRect,
-    expandedSize: NSSize,
-    visibleFrame: NSRect
-  ) -> NSRect {
-    // A collapsed standard bar must leave enough room to grow right and down.
-    // Clamping the compact anchor now prevents the expanded panel from moving
-    // its top-left corner later.
-    let maximumX = max(visibleFrame.minX, visibleFrame.maxX - expandedSize.width)
-    let x = min(max(currentFrame.minX, visibleFrame.minX), maximumX)
-    let minimumTop = min(visibleFrame.maxY, visibleFrame.minY + expandedSize.height)
-    let top = min(max(currentFrame.maxY, minimumTop), visibleFrame.maxY)
-    return NSRect(
-      x: x,
-      y: top - currentFrame.height,
-      width: currentFrame.width,
-      height: currentFrame.height
-    )
-  }
 }
 
 private struct FeedbackBannerHeightKey: PreferenceKey {
@@ -318,6 +302,10 @@ struct FloatingPanelView: View {
   private var isTransitioning: Bool { panelState.isCollapsing || panelState.isExpanding }
   private var isMinimalMode: Bool { settings.quotaDisplayMode == .minimal }
   private var expandedRevealProgress: CGFloat { panelState.revealProgress }
+  private var revealDirection: PanelExpansionDirection {
+    settings.quotaDisplayMode == .menuBar
+      ? PanelExpansionDirection(growsLeft: true) : panelState.expansionDirection
+  }
   private var liquidChromeOpacity: Double {
     // The large material surface must not be visible on the compact endpoint.
     // A compact, fixed-size material surface owns that frame so resizing the
@@ -332,7 +320,8 @@ struct FloatingPanelView: View {
   private var liquidSeedSize: NSSize {
     FloatingPanelLayout.liquidSurfaceSeedSize(
       canvasSize: panelState.expandedCanvasSize,
-      mode: settings.quotaDisplayMode
+      mode: settings.quotaDisplayMode,
+      minimalSize: panelState.minimalMeterAppearance.collapsedSize
     )
   }
   private var compactContentProgress: CGFloat {
@@ -375,10 +364,10 @@ struct FloatingPanelView: View {
   }
 
   var body: some View {
-    ZStack(alignment: .topLeading) {
+    ZStack(alignment: revealDirection.alignment) {
       contentLayers
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: revealDirection.alignment)
     // Keep the final interaction region available while the liquid boundary
     // catches up, so moving from the compact entry into the opening panel does
     // not accidentally reverse the animation.
@@ -399,12 +388,12 @@ struct FloatingPanelView: View {
     liquidSurface
 
     compactPresentation
-      .mask(alignment: .top) {
+      .mask(alignment: revealDirection.growsUp ? .bottom : .top) {
         Rectangle()
           .scaleEffect(
             x: 1,
             y: compactContentProgress,
-            anchor: .top
+            anchor: revealDirection.growsUp ? .bottom : .top
           )
       }
       .allowsHitTesting(panelState.isCollapsed && !isTransitioning)
@@ -423,19 +412,20 @@ struct FloatingPanelView: View {
       ) {
         expandedLayer
           .offset(
-            FloatingPanelLayout.liquidContentOffset(
-              expandedProgress: expandedRevealProgress
+            CGSize(
+              width: (revealDirection.growsLeft ? 5 : -5) * (1 - expandedRevealProgress),
+              height: (revealDirection.growsUp ? 3 : -3) * (1 - expandedRevealProgress)
             )
           )
           // Cache the stable final-size hierarchy as one compositing surface.
           // Only the cheap mask transforms during the hover animation.
           .compositingGroup()
-          .mask(alignment: .topLeading) {
+          .mask(alignment: revealDirection.alignment) {
             Rectangle()
               .scaleEffect(
                 x: expandedContentProgress,
                 y: expandedContentProgress,
-                anchor: .topLeading
+                anchor: revealDirection.unitPoint
               )
           }
       }
@@ -478,33 +468,38 @@ struct FloatingPanelView: View {
     LiquidCapsuleRevealShape(
       progress: reduceMotion ? (panelState.isCollapsed ? 0 : 1) : liquidSurfaceProgress,
       seedSize: liquidSeedSize,
-      anchoredToTrailingEdge: settings.quotaDisplayMode == .menuBar
+      anchoredToTrailingEdge: revealDirection.growsLeft,
+      anchoredToBottomEdge: revealDirection.growsUp
     )
   }
 
   private var expandedLayer: some View {
-    expandedContent
-      .frame(
-        width: FloatingPanelLayout.expandedInnerWidth(
-          canvasWidth: panelState.expandedCanvasSize.width
-        ),
-        alignment: .topLeading
-      )
-      .padding(
-        EdgeInsets(
-          top: FloatingPanelLayout.expandedPadding,
-          leading: FloatingPanelLayout.expandedPadding,
-          bottom: FloatingPanelLayout.expandedBottomPadding,
-          trailing: FloatingPanelLayout.expandedPadding
+    ScrollView(panelState.expandedCanvasSize.width < 340 ? [.horizontal, .vertical] : .vertical) {
+      expandedContent
+        .frame(
+          width: FloatingPanelLayout.expandedInnerWidth(
+            canvasWidth: max(340, panelState.expandedCanvasSize.width)
+          ),
+          alignment: .topLeading
         )
-      )
-      // The hierarchy always receives the final inner width. The liquid shape
-      // reveals this stable canvas without re-centering individual sections.
-      .frame(
-        width: panelState.expandedCanvasSize.width,
-        height: panelState.expandedCanvasSize.height,
-        alignment: .topLeading
-      )
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(
+          EdgeInsets(
+            top: FloatingPanelLayout.expandedPadding,
+            leading: FloatingPanelLayout.expandedPadding,
+            bottom: FloatingPanelLayout.expandedBottomPadding,
+            trailing: FloatingPanelLayout.expandedPadding
+          )
+        )
+    }
+    .scrollBounceBehavior(.basedOnSize)
+    // The hierarchy always receives the final inner width. The liquid shape
+    // reveals this stable canvas without re-centering individual sections.
+    .frame(
+      width: panelState.expandedCanvasSize.width,
+      height: panelState.expandedCanvasSize.height,
+      alignment: .topLeading
+    )
   }
 
   @ViewBuilder private var compactLayer: some View {
@@ -512,9 +507,9 @@ struct FloatingPanelView: View {
       minimalCollapsedContent
         .padding(FloatingPanelLayout.minimalCollapsedPadding)
         .frame(
-          width: FloatingPanelLayout.minimalCollapsedWidth,
-          height: FloatingPanelLayout.minimalCollapsedHeight,
-          alignment: .topLeading
+          width: panelState.minimalMeterAppearance.collapsedSize.width,
+          height: panelState.minimalMeterAppearance.collapsedSize.height,
+          alignment: .center
         )
     } else {
       collapsedContent
@@ -632,32 +627,20 @@ struct FloatingPanelView: View {
   }
 
   private var minimalCollapsedContent: some View {
-    Group {
-      if quotaDisplay.isDual {
-        DualMinimalQuotaView(
-          entries: quotaDisplay.compact,
-          lowThreshold: settings.lowThreshold,
-          criticalThreshold: settings.criticalThreshold,
-          freshness: model.quota?.freshness,
-          language: settings.appLanguage
-        )
-      } else {
-        MinimalQuotaMeterView(
-          remainingPercent: quotaDisplay.compact.first?.window?.remainingPercent,
-          lowThreshold: settings.lowThreshold,
-          criticalThreshold: settings.criticalThreshold,
-          freshness: model.quota?.freshness,
-          language: settings.appLanguage,
-          accessibilityName: quotaDisplay.compact.first?.title(strings)
-        )
-      }
-    }
+    MinimalQuotaPresentation(
+      appearance: panelState.minimalMeterAppearance,
+      entries: quotaDisplay.compact,
+      lowThreshold: settings.lowThreshold,
+      criticalThreshold: settings.criticalThreshold,
+      freshness: model.quota?.freshness,
+      language: settings.appLanguage
+    )
     // Preserve the exact collapsed layout proposal while the NSPanel grows.
     // Without this fixed canvas, the meter expands to the panel's new size
     // and SwiftUI briefly centers it in the middle of the floating surface.
     .frame(
-      width: FloatingPanelLayout.minimalContentSize.width,
-      height: FloatingPanelLayout.minimalContentSize.height,
+      width: panelState.minimalMeterAppearance.contentSize.width,
+      height: panelState.minimalMeterAppearance.contentSize.height,
       alignment: .center
     )
     .contentShape(Rectangle())
@@ -727,7 +710,8 @@ struct FloatingPanelView: View {
           .fixedSize(horizontal: true, vertical: false)
       }
       if let quota = model.quota {
-        let count = quota.resetCreditCount
+        let count =
+          quota.resetCreditCount
           ?? ResetCreditExpiryCarouselPolicy.availableCount(
             in: quota.resetCredits,
             now: Date()
@@ -1176,6 +1160,7 @@ private struct LiquidCapsuleRevealShape: InsettableShape {
   var progress: CGFloat
   let seedSize: NSSize
   let anchoredToTrailingEdge: Bool
+  var anchoredToBottomEdge: Bool = false
   var insetAmount: CGFloat = 0
 
   nonisolated var animatableData: CGFloat {
@@ -1188,7 +1173,8 @@ private struct LiquidCapsuleRevealShape: InsettableShape {
       in: rect,
       progress: progress,
       seedSize: seedSize,
-      anchoredToTrailingEdge: anchoredToTrailingEdge
+      anchoredToTrailingEdge: anchoredToTrailingEdge,
+      anchoredToBottomEdge: anchoredToBottomEdge
     ).insetBy(dx: insetAmount, dy: insetAmount)
     guard revealRect.width > 0, revealRect.height > 0 else { return Path() }
     let requestedRadius = max(

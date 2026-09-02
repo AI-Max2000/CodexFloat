@@ -73,6 +73,7 @@ enum QuotaMeterAccessibility {
 }
 
 struct MinimalQuotaMeterView: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let remainingPercent: Double?
   let lowThreshold: Double
   let criticalThreshold: Double
@@ -80,6 +81,7 @@ struct MinimalQuotaMeterView: View {
   let language: AppLanguage
 
   var meterHeight: CGFloat = 38
+  var meterWidth: CGFloat = 6
   var accessibilityName: String?
   private var clampedRemaining: Double? {
     remainingPercent.map { min(100, max(0, $0)) }
@@ -99,8 +101,8 @@ struct MinimalQuotaMeterView: View {
       Capsule()
         .strokeBorder(borderColor, lineWidth: 0.7)
     }
-    .frame(width: 6, height: meterHeight)
-    .animation(.easeInOut(duration: 0.55), value: clampedRemaining)
+    .frame(width: meterWidth, height: meterHeight)
+    .animation(reduceMotion ? nil : .easeInOut(duration: 0.55), value: clampedRemaining)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(accessibilityTitle)
     .accessibilityValue(accessibilityValue)
@@ -153,9 +155,9 @@ struct MinimalQuotaMeterView: View {
 
   private var helpText: String {
     switch language {
-    case .simplifiedChinese: "彩色高度表示剩余额度，悬停查看详情"
-    case .traditionalChinese: "彩色高度表示剩餘額度，懸停查看詳情"
-    case .english: "Colored height shows remaining quota; hover for details"
+    case .simplifiedChinese: "彩色部分表示剩余额度，悬停查看详情"
+    case .traditionalChinese: "彩色部分表示剩餘額度，懸停查看詳情"
+    case .english: "Color shows remaining quota; hover for details"
     }
   }
 }

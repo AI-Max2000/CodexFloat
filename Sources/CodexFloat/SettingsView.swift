@@ -83,12 +83,20 @@ struct SettingsView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         }
-        Text(settings.quotaDisplayMode == .menuBar
-          ? strings.text(.menuBarAlwaysVisibleHelp)
-          : (settings.showOnlyWhenChatGPTIsFrontmost
-            ? strings.text(.frontmostEnabledHelp) : strings.text(.frontmostDisabledHelp)))
+        Text(
+          settings.quotaDisplayMode == .menuBar
+            ? strings.text(.menuBarAlwaysVisibleHelp)
+            : (settings.showOnlyWhenChatGPTIsFrontmost
+              ? strings.text(.frontmostEnabledHelp) : strings.text(.frontmostDisabledHelp))
+        )
         .font(.caption)
         .foregroundStyle(.secondary)
+      }
+
+      if settings.quotaDisplayMode == .minimal {
+        Section(strings.text(.minimalAppearance)) {
+          MinimalAppearanceSettingsView(model: model, settings: settings)
+        }
       }
 
       Section(strings.text(.shortcutSection)) {
@@ -176,9 +184,11 @@ struct SettingsView: View {
             )
           )
           .disabled(quotaDisplay.isFiveHourAlwaysVisible)
-          Text(strings.text(
-            quotaDisplay.isFiveHourAlwaysVisible ? .fiveHourOnlyHelp : .fiveHourQuotaHelp
-          ))
+          Text(
+            strings.text(
+              quotaDisplay.isFiveHourAlwaysVisible ? .fiveHourOnlyHelp : .fiveHourQuotaHelp
+            )
+          )
           .font(.caption)
           .foregroundStyle(.secondary)
         }

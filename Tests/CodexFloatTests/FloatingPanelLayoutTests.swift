@@ -293,10 +293,12 @@ struct FloatingPanelLayoutTests {
     #expect(controller.panel.backgroundColor == .clear)
     #expect(!controller.panel.hasShadow)
     #expect(controller.panel.contentView?.layer?.masksToBounds == true)
-    #expect(controller.panel.contentView?.layer?.cornerRadius == 18)
+    // SwiftUI owns the 18 pt rounded shape. Native layers stay transparent but
+    // must not apply a second, differently rasterized rounded mask.
+    #expect(controller.panel.contentView?.layer?.cornerRadius == 0)
     #expect(controller.panel.contentView?.layerContentsRedrawPolicy == .duringViewResize)
     #expect(controller.panel.contentView?.superview?.layer?.masksToBounds == true)
-    #expect(controller.panel.contentView?.superview?.layer?.cornerRadius == 18)
+    #expect(controller.panel.contentView?.superview?.layer?.cornerRadius == 0)
     controller.panel.orderFrontRegardless()
     defer { controller.panel.orderOut(nil) }
 
@@ -454,7 +456,7 @@ struct FloatingPanelLayoutTests {
     #expect(expandedNearRightEdge.maxY == collapsedNearRightEdge.maxY)
   }
 
-  @Test func standardCollapsedBarReservesRoomForAnAlignedExpandedPanel() {
+  @Test func standardCollapsedBarAtBottomRightExpandsWithoutReservingSpace() {
     let visible = NSRect(x: 0, y: 87, width: 1_440, height: 811)
     let collapsedNearRightAndBottom = NSRect(
       x: 1_250,
@@ -463,22 +465,16 @@ struct FloatingPanelLayoutTests {
       height: FloatingPanelLayout.collapsedHeight
     )
     let expandedSize = NSSize(width: 340, height: 291)
-    let anchored = FloatingPanelLayout.standardCollapsedAnchorFrame(
-      currentFrame: collapsedNearRightAndBottom,
-      expandedSize: expandedSize,
-      visibleFrame: visible
-    )
-    let expanded = FloatingPanelLayout.anchoredResizeFrame(
-      currentFrame: anchored,
-      targetSize: expandedSize,
-      visibleFrame: visible
-    )
-
-    #expect(anchored.minX == visible.maxX - expandedSize.width)
-    #expect(anchored.maxY == visible.minY + expandedSize.height)
-    #expect(expanded.minX == anchored.minX)
-    #expect(expanded.maxY == anchored.maxY)
-    #expect(visible.contains(expanded))
+    let expanded = PanelExpansionGeometry.resolve(
+      compactFrame: collapsedNearRightAndBottom, preferredSize: expandedSize, visibleFrame: visible)
+    #expect(expanded.direction == PanelExpansionDirection(growsLeft: true, growsUp: true))
+    #expect(expanded.frame.maxX == collapsedNearRightAndBottom.maxX)
+    #expect(expanded.frame.minY == collapsedNearRightAndBottom.minY)
+    #expect(visible.contains(expanded.frame))
+    #expect(
+      PanelExpansionGeometry.compactFrame(
+        in: expanded.frame, size: collapsedNearRightAndBottom.size,
+        direction: expanded.direction) == collapsedNearRightAndBottom)
   }
 
   @Test func collapseCanReturnToTheExactPreHoverRestingFrame() {
@@ -767,7 +763,8 @@ struct FloatingPanelLayoutTests {
       var result: CGFloat = 0
       appearance.performAsCurrentDrawingAppearance {
         guard let resolved = color.usingColorSpace(.sRGB) else { return }
-        result = 0.2126 * resolved.redComponent
+        result =
+          0.2126 * resolved.redComponent
           + 0.7152 * resolved.greenComponent
           + 0.0722 * resolved.blueComponent
       }

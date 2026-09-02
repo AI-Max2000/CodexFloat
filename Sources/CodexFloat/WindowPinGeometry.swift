@@ -18,17 +18,14 @@ enum WindowPinGeometry {
     offset: WindowPinOffset, windowFrame: NSRect, panelSize: NSSize,
     expandedSize: NSSize, visibleFrame: NSRect
   ) -> NSRect {
-    // Reserve the expanded footprint so hover never changes the compact anchor
-    // near a screen edge. Clamping is temporary; never overwrite the saved offset.
-    let footprint = PanelPlacementGeometry.clamped(
+    // Only the compact entry is constrained to the screen. The detail surface
+    // chooses its own direction; reserving its footprint would push the entry.
+    PanelPlacementGeometry.clamped(
       NSRect(
         x: windowFrame.minX + offset.left,
-        y: windowFrame.maxY - offset.top - max(panelSize.height, expandedSize.height),
-        width: max(panelSize.width, expandedSize.width),
-        height: max(panelSize.height, expandedSize.height)),
+        y: windowFrame.maxY - offset.top - panelSize.height,
+        width: panelSize.width,
+        height: panelSize.height),
       to: visibleFrame)
-    return NSRect(
-      x: footprint.minX, y: footprint.maxY - panelSize.height,
-      width: panelSize.width, height: panelSize.height)
   }
 }

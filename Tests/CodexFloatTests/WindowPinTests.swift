@@ -53,12 +53,12 @@ struct WindowPinTests {
     let compact = WindowPinGeometry.frame(
       offset: offset, windowFrame: moved,
       panelSize: NSSize(width: 36, height: 54), expandedSize: expandedSize, visibleFrame: screen)
-    let expanded = WindowPinGeometry.frame(
-      offset: offset, windowFrame: moved,
-      panelSize: expandedSize, expandedSize: expandedSize, visibleFrame: screen)
-    #expect(screen.contains(expanded))
-    #expect(compact.minX == expanded.minX)
-    #expect(compact.maxY == expanded.maxY)
+    let expanded = PanelExpansionGeometry.resolve(
+      compactFrame: compact, preferredSize: expandedSize, visibleFrame: screen)
+    #expect(screen.contains(expanded.frame))
+    #expect(
+      PanelExpansionGeometry.compactFrame(
+        in: expanded.frame, size: compact.size, direction: expanded.direction) == compact)
     let returned = WindowPinGeometry.frame(
       offset: offset, windowFrame: original,
       panelSize: NSSize(width: 36, height: 54), expandedSize: expandedSize, visibleFrame: screen)
@@ -259,7 +259,8 @@ extension FloatingPanelLayoutTests {
     }
   }
 
-  @Test @MainActor func movementHidesBothModesWithoutChangingVisibilityOrSavedOffsets() async throws {
+  @Test @MainActor func movementHidesBothModesWithoutChangingVisibilityOrSavedOffsets() async throws
+  {
     for mode in [QuotaDisplayMode.standard, .minimal] {
       try await withWindowPinFixture(mode: mode) { controller, _, placement, window in
         controller.updateCodexWindow(window)

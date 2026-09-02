@@ -32,13 +32,16 @@ enum PanelPlacementGeometry {
     panelHeight: CGFloat,
     minimumWidth: CGFloat,
     maximumWidth: CGFloat,
-    visibleFrame: NSRect
+    visibleFrame: NSRect,
+    compactSize: NSSize? = nil
   ) -> NSRect {
     let width = min(maximumWidth, max(minimumWidth, CGFloat(record.expandedWidth)))
     let x = visibleFrame.minX + CGFloat(record.normalizedLeft) * visibleFrame.width
     let top = visibleFrame.maxY - CGFloat(record.normalizedTop) * visibleFrame.height
     return clamped(
-      NSRect(x: x, y: top - panelHeight, width: width, height: panelHeight),
+      NSRect(
+        x: x, y: top - (compactSize?.height ?? panelHeight),
+        width: compactSize?.width ?? width, height: compactSize?.height ?? panelHeight),
       to: visibleFrame
     )
   }
@@ -107,14 +110,17 @@ enum CodexInitialPanelPlacement {
 
   static func frame(panelSize: NSSize) -> NSRect {
     let application = runningCodexApplication()
-    let windowFrame = application.flatMap { codexWindowFrame(processIdentifier: $0.processIdentifier) }
+    let windowFrame = application.flatMap {
+      codexWindowFrame(processIdentifier: $0.processIdentifier)
+    }
     let labelFrame = application.flatMap {
       codexLabelFrame(
         processIdentifier: $0.processIdentifier,
         expectedWindowFrame: windowFrame
       )
     }
-    let screen = screen(containing: labelFrame ?? windowFrame) ?? NSScreen.main ?? NSScreen.screens.first
+    let screen =
+      screen(containing: labelFrame ?? windowFrame) ?? NSScreen.main ?? NSScreen.screens.first
     let visibleFrame = screen?.visibleFrame ?? NSRect(origin: .zero, size: panelSize)
     return PanelPlacementGeometry.initialFrame(
       panelSize: panelSize,
@@ -132,14 +138,17 @@ enum CodexInitialPanelPlacement {
   }
 
   private static func codexWindowFrame(processIdentifier: pid_t) -> NSRect? {
-    guard let rawWindows = CGWindowListCopyWindowInfo(
-      [.optionOnScreenOnly, .excludeDesktopElements],
-      kCGNullWindowID
-    ) as? [[String: Any]] else { return nil }
+    guard
+      let rawWindows = CGWindowListCopyWindowInfo(
+        [.optionOnScreenOnly, .excludeDesktopElements],
+        kCGNullWindowID
+      ) as? [[String: Any]]
+    else { return nil }
 
     for window in rawWindows {
-      guard (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value
-        == processIdentifier,
+      guard
+        (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value
+          == processIdentifier,
         (window[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
         let boundsDictionary = window[kCGWindowBounds as String] as? [String: Any],
         let quartzFrame = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary),
@@ -262,9 +271,10 @@ final class PanelPlacementStore {
 
   func saveWindowPinOffset(_ offset: WindowPinOffset, for mode: QuotaDisplayMode) {
     guard mode != .menuBar, offset.isValid else { return }
-    var offsets = defaults.data(forKey: pinArchiveKey).flatMap {
-      try? JSONDecoder().decode([String: WindowPinOffset].self, from: $0)
-    } ?? [:]
+    var offsets =
+      defaults.data(forKey: pinArchiveKey).flatMap {
+        try? JSONDecoder().decode([String: WindowPinOffset].self, from: $0)
+      } ?? [:]
     offsets[mode.rawValue] = offset
     if let data = try? JSONEncoder().encode(offsets) {
       defaults.set(data, forKey: pinArchiveKey)
@@ -278,23 +288,27 @@ final class PanelPlacementStore {
     defaultSize: NSSize,
     minimumWidth: CGFloat,
     maximumWidth: CGFloat,
-    initialFrame: NSRect
+    initialFrame: NSRect,
+    compactSize: NSSize? = nil
   ) -> Bool {
     let archive = readArchive()
     let modeRecords = archive.recordsByMode[mode.rawValue] ?? [:]
     let lastScreenID = archive.lastScreenByMode[mode.rawValue]
-    let record = lastScreenID.flatMap { modeRecords[$0] }
+    let record =
+      lastScreenID.flatMap { modeRecords[$0] }
       ?? modeRecords.sorted(by: { $0.key < $1.key }).first?.value
 
     guard let record else {
-      let visibleFrame = bestScreen(for: initialFrame)?.visibleFrame
+      let visibleFrame =
+        bestScreen(for: initialFrame)?.visibleFrame
         ?? NSScreen.main?.visibleFrame
         ?? initialFrame
       panel.setFrame(PanelPlacementGeometry.clamped(initialFrame, to: visibleFrame), display: false)
       return false
     }
 
-    let screen = NSScreen.screens.first(where: { screenID($0) == lastScreenID })
+    let screen =
+      NSScreen.screens.first(where: { screenID($0) == lastScreenID })
       ?? NSScreen.main
       ?? NSScreen.screens.first
     guard let screen else { return false }
@@ -304,11 +318,21 @@ final class PanelPlacementStore {
         panelHeight: defaultSize.height,
         minimumWidth: minimumWidth,
         maximumWidth: maximumWidth,
-        visibleFrame: screen.visibleFrame
+        visibleFrame: screen.visibleFrame,
+        compactSize: compactSize
       ),
       display: false
     )
     return true
+  }
+
+  func preferredExpandedWidth(for mode: QuotaDisplayMode, fallback: CGFloat) -> CGFloat {
+    let archive = readArchive()
+    let records = archive.recordsByMode[mode.rawValue] ?? [:]
+    let record =
+      archive.lastScreenByMode[mode.rawValue].flatMap { records[$0] }
+      ?? records.sorted(by: { $0.key < $1.key }).first?.value
+    return record.map { CGFloat($0.expandedWidth) } ?? fallback
   }
 
   func saveUserPlacement(
@@ -365,7 +389,8 @@ final class PanelPlacementStore {
   }
 
   private func screenID(_ screen: NSScreen) -> String {
-    if let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
+    if let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+    {
       return number.stringValue
     }
     return screen.localizedName

@@ -24,6 +24,10 @@ enum LocalizedTextKey: String, CaseIterable {
   case language, languageDescription, unknown
   case windowSection, displayMode, standardDisplayMode, minimalDisplayMode, menuBarDisplayMode
   case minimalCollapsedHelp, menuBarDisplayHelp, hoverExpand, collapseAfterMouseLeaves, immediately
+  case minimalAppearance, minimalStyle, minimalVertical, minimalHorizontal, minimalRing
+  case minimalLength, minimalHeight, minimalDiameter, minimalThickness, minimalScale,
+    minimalPreview, minimalPoints
+  case minimalAppearanceHelp, minimalRingQuotaHelp, minimalLinearQuotaHelp
   case showOnLaunch, frontmostOnly, hoverEnabledHelp, hoverDisabledHelp, menuBarAlwaysVisibleHelp
   case frontmostEnabledHelp, frontmostDisabledHelp
   case followCodexWindow, followCodexWindowHelp
@@ -452,7 +456,35 @@ struct AppStrings: Sendable {
     .standardDisplayMode: ("完整额度", "完整額度", "Full quota"),
     .minimalDisplayMode: ("极简进度条", "極簡進度條", "Minimal meter"),
     .menuBarDisplayMode: ("菜单栏额度", "選單列額度", "Menu bar quota"),
-    .minimalCollapsedHelp: ("极简模式只保留一根竖向额度条；彩色高度表示剩余额度，鼠标移入后展示完整浮窗。", "極簡模式只保留一條垂直額度條；彩色高度表示剩餘額度，滑鼠移入後顯示完整懸浮視窗。", "Minimal mode keeps only a vertical quota meter. Its colored height shows the remaining quota; hover to reveal the full window."),
+    .minimalCollapsedHelp: (
+      "极简模式可选择竖条、横条或圆环；彩色部分表示剩余额度，悬停查看详情。", "極簡模式可選擇直條、橫條或圓環；彩色部分表示剩餘額度，懸停查看詳情。",
+      "Choose a vertical bar, horizontal bar, or ring. Color shows remaining quota; hover for details."
+    ),
+    .minimalAppearance: ("极简外观", "極簡外觀", "Minimal appearance"),
+    .minimalStyle: ("样式", "樣式", "Style"),
+    .minimalVertical: ("竖条", "直條", "Vertical"),
+    .minimalHorizontal: ("横条", "橫條", "Horizontal"),
+    .minimalRing: ("圆环", "圓環", "Ring"),
+    .minimalLength: ("长度", "長度", "Length"),
+    .minimalHeight: ("高度", "高度", "Height"),
+    .minimalDiameter: ("直径", "直徑", "Diameter"),
+    .minimalThickness: ("粗细", "粗細", "Thickness"),
+    .minimalScale: ("整体大小", "整體大小", "Scale"),
+    .minimalPreview: ("实时预览", "即時預覽", "Live preview"),
+    .minimalPoints: ("点", "點", "pt"),
+    .minimalAppearanceHelp: (
+      "拖动滑块或输入数值，立即生效；各样式分别记忆尺寸。预览过大时会等比缩小，悬浮组件按设置尺寸显示。",
+      "拖曳滑桿或輸入數值，立即生效；各樣式分別記住尺寸。預覽過大時會等比縮小，懸浮元件依設定尺寸顯示。",
+      "Drag a slider or enter a value. Each style remembers its dimensions. Large previews are scaled to fit; the floating entry uses your chosen size."
+    ),
+    .minimalRingQuotaHelp: (
+      "双额度时：外环为 5 小时，内环为每周；悬停查看各自数值。", "雙額度時：外環為 5 小時，內環為每週；懸停查看各自數值。",
+      "With two quotas: outer ring = 5-hour, inner ring = weekly. Hover for each reading."
+    ),
+    .minimalLinearQuotaHelp: (
+      "双额度分别标注周期；颜色和长度各自表示剩余额度。", "雙額度分別標示週期；顏色和長度各自表示剩餘額度。",
+      "Paired bars are labeled by period; each color and length represents its own remaining quota."
+    ),
     .menuBarDisplayHelp: ("显示在 macOS 右侧系统状态栏，由系统自动避开应用菜单；悬停自动展开完整浮窗，移开后收起，右键打开功能菜单。", "顯示在 macOS 右側系統狀態列，由系統自動避開應用程式選單；懸停自動展開完整懸浮視窗，移開後收起，右鍵開啟功能選單。", "Shown as a native item on the right side of the macOS menu bar, where the system keeps it clear of app menus. Hover to reveal the full window; it closes after you move away. Right-click for the action menu."),
     .hoverExpand: ("鼠标移入时自动展开", "滑鼠移入時自動展開", "Expand when pointer hovers"),
     .collapseAfterMouseLeaves: ("鼠标移出后收起", "滑鼠移出後收起", "Collapse after pointer leaves"),
