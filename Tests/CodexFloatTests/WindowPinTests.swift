@@ -147,7 +147,10 @@ extension FloatingPanelLayoutTests {
       defer { tracker.stop() }
       let clock = ContinuousClock()
       let start = clock.now
-      while latencies.count < 48, start.duration(to: clock.now) < .seconds(3) {
+      // Hosted macOS VMs coalesce timers and WindowServer updates. This checks
+      // eventual delivery/geometry, not a minimum FPS or wall-clock benchmark.
+      // Keep all 48 changed samples and fail within a bounded eight seconds.
+      while latencies.count < 48, start.duration(to: clock.now) < .seconds(8) {
         try await Task.sleep(for: .milliseconds(10))
       }
       #expect(latencies.count >= 48)
