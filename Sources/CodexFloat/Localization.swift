@@ -26,11 +26,15 @@ enum LocalizedTextKey: String, CaseIterable {
   case minimalCollapsedHelp, menuBarDisplayHelp, hoverExpand, collapseAfterMouseLeaves, immediately
   case showOnLaunch, frontmostOnly, hoverEnabledHelp, hoverDisabledHelp, menuBarAlwaysVisibleHelp
   case frontmostEnabledHelp, frontmostDisabledHelp
+  case followCodexWindow, followCodexWindowHelp
   case shortcutSection, shortcutEnable, shortcut, restoreDefault, shortcutHelp
   case taskSection, showRecentTasks, taskCount, taskCountValue, taskCompletionNotification, taskHelp
   case notificationsSection, enableNotifications, lowQuotaAlert, criticalQuotaAlert
   case newResetCreditAlert, expiringResetCreditAlert, tiboResetAlert, fiveHourAlert
   case quotaDisplaySection, showSupplementaryQuotas, supplementaryQuotaHelp
+  case showFiveHourQuota, fiveHourQuotaHelp, fiveHourOnlyHelp, fiveHourQuota, weeklyQuota
+  case fiveHourQuotaShort, weeklyQuotaShort, quotaWindowNotReturned, quotaAwaitingRefresh
+  case fiveHourQuotaPeriod, weeklyQuotaPeriod
   case autoRefreshInterval, refreshEvery15Seconds, refreshEvery30Seconds
   case refreshEveryMinute, refreshEveryFiveMinutes, autoRefreshHelp
   case tiboSection, tiboPolling, tiboHelp, resetProbabilityToggle, resetProbabilityHelp
@@ -455,6 +459,8 @@ struct AppStrings: Sendable {
     .immediately: ("立即", "立即", "Immediately"),
     .showOnLaunch: ("启动时显示浮窗", "啟動時顯示懸浮視窗", "Show floating window at launch"),
     .frontmostOnly: ("仅在 ChatGPT 或 Codex 位于前台时显示", "僅在 ChatGPT 或 Codex 位於前景時顯示", "Show only while ChatGPT or Codex is in front"),
+    .followCodexWindow: ("跟随 Codex 窗口移动", "跟隨 Codex 視窗移動", "Move with the Codex window"),
+    .followCodexWindowHelp: ("移动 Codex 窗口时暂时隐藏工具，松手并停稳后在原来的相对位置恢复。拖动工具可调整固定位置，完整额度和极简进度条分别记忆；关闭后可独立摆放。", "移動 Codex 視窗時暫時隱藏工具，放開滑鼠並停穩後在原來的相對位置恢復。拖曳工具可調整固定位置，完整額度和極簡進度條分別記憶；關閉後可獨立擺放。", "Temporarily hide the tool while Codex moves; restore its relative position after you release the mouse and the window settles. Drag the tool to change its offset, remembered separately for full and minimal modes. Turn off to position it independently."),
     .hoverEnabledHelp: ("平时只显示紧凑额度条；鼠标移入后展开，移出后自动收起。", "平時只顯示精簡額度列；滑鼠移入後展開，移出後自動收起。", "Normally shows a compact quota bar. Hover to expand; move away to collapse."),
     .hoverDisabledHelp: ("关闭后浮窗保持展开。隐藏后可用全局快捷键或重新打开应用恢复。", "關閉後懸浮視窗會保持展開。隱藏後可用全域快捷鍵或重新開啟應用程式恢復。", "When disabled, the window stays expanded. After hiding it, use the global shortcut or reopen the app to restore it."),
     .frontmostEnabledHelp: ("切到其他应用时自动隐藏，返回 ChatGPT 或 Codex 时自动恢复。手动隐藏后不会自动恢复。", "切到其他應用程式時自動隱藏，返回 ChatGPT 或 Codex 時自動恢復。手動隱藏後不會自動恢復。", "Automatically hides in other apps and returns with ChatGPT or Codex. A manual hide remains hidden."),
@@ -480,6 +486,27 @@ struct AppStrings: Sendable {
     .tiboResetAlert: ("Tibo 发布新的重置消息", "Tibo 發布新的重置消息", "New reset announcement from Tibo"),
     .fiveHourAlert: ("额度刷新前 5 小时提醒", "額度更新前 5 小時提醒", "Alert 5 hours before quota refresh"),
     .quotaDisplaySection: ("额度显示", "額度顯示", "Quota display"),
+    .showFiveHourQuota: (
+      "显示 5 小时额度", "顯示 5 小時額度", "Show 5-hour quota"
+    ),
+    .fiveHourQuotaHelp: (
+      "已检测到 5 小时和每周额度。默认只显示每周；开启后，完整额度与菜单栏并列显示双读数，极简形态显示双细条。按账号实际返回的窗口识别，不限制套餐，也不改变通知规则。",
+      "已偵測到 5 小時與每週額度。預設只顯示每週；開啟後，完整額度與選單列並排顯示雙讀數，極簡形態顯示雙細條。依帳號實際回傳的視窗識別，不限方案，也不改變通知規則。",
+      "5-hour and weekly quotas detected. Weekly is shown by default. Enable paired readings in Full quota and the menu bar, and twin meters in Minimal mode. Availability follows returned windows, not your plan. Notification rules are unchanged."
+    ),
+    .fiveHourOnlyHelp: (
+      "当前账号未返回每周额度，5 小时额度会作为主额度始终显示。不会生成不存在的每周额度；之前的开关选择仍会保留。",
+      "目前帳號未回傳每週額度，5 小時額度會作為主要額度持續顯示。不會產生不存在的每週額度；先前的開關選擇仍會保留。",
+      "No weekly window was returned, so the 5-hour quota stays visible as the main reading. No weekly quota is invented. Your saved preference is retained."
+    ),
+    .fiveHourQuota: ("5 小时额度", "5 小時額度", "5-hour quota"),
+    .weeklyQuota: ("每周额度", "每週額度", "Weekly quota"),
+    .fiveHourQuotaShort: ("5时", "5時", "5h"),
+    .fiveHourQuotaPeriod: ("5 小时", "5 小時", "5-hour"),
+    .weeklyQuotaPeriod: ("每周", "每週", "Weekly"),
+    .weeklyQuotaShort: ("周", "週", "Wk"),
+    .quotaWindowNotReturned: ("暂未返回此额度", "暫未回傳此額度", "Quota not returned yet"),
+    .quotaAwaitingRefresh: ("待更新", "待更新", "Due"),
     .autoRefreshInterval: ("额度自动刷新", "額度自動更新", "Automatic quota refresh"),
     .refreshEvery15Seconds: ("每 15 秒", "每 15 秒", "Every 15 seconds"),
     .refreshEvery30Seconds: ("每 30 秒", "每 30 秒", "Every 30 seconds"),

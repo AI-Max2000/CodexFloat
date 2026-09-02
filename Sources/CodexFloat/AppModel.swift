@@ -234,7 +234,9 @@ final class AppModel: ObservableObject {
     return try encoder.encode(report)
   }
 
-  private func loadCache() async {
+  // Kept separate from start() so cache restoration can be verified without
+  // launching the App Server, polling feeds, or requesting notifications.
+  func loadCache() async {
     do {
       if let cached = try await store.latestSnapshot() {
         quota = cached.marked(.stale, error: nil)

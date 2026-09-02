@@ -27,8 +27,11 @@ final class AppSettings: ObservableObject {
     static let hoverExpansionEnabled = "hoverExpansionEnabled"
     static let hoverCollapseDelay = "hoverCollapseDelay"
     static let showPanelOnLaunch = "showPanelOnLaunch"
+    static let followCodexWindow = "followCodexWindow"
     static let showOnlyWhenChatGPTIsFrontmost = "showOnlyWhenChatGPTIsFrontmost"
     static let showSupplementaryGPTQuotas = "showSupplementaryGPTQuotas"
+    static let showFiveHourQuota = "showFiveHourQuota"
+    static let legacyShowPlusFiveHourQuota = "showPlusFiveHourQuota"
     static let shortcutEnabled = "globalHotKeyEnabled"
     static let shortcutConfiguration = "globalHotKeyConfiguration"
     static let showRecentTasks = "showRecentTasks"
@@ -113,6 +116,12 @@ final class AppSettings: ObservableObject {
   @Published var showPanelOnLaunch: Bool {
     didSet { defaults.set(showPanelOnLaunch, forKey: Key.showPanelOnLaunch) }
   }
+  @Published var followCodexWindow: Bool {
+    didSet {
+      defaults.set(followCodexWindow, forKey: Key.followCodexWindow)
+      onWindowFollowingChange?()
+    }
+  }
   @Published var showOnlyWhenChatGPTIsFrontmost: Bool {
     didSet {
       defaults.set(
@@ -124,6 +133,9 @@ final class AppSettings: ObservableObject {
   }
   @Published var showSupplementaryGPTQuotas: Bool {
     didSet { defaults.set(showSupplementaryGPTQuotas, forKey: Key.showSupplementaryGPTQuotas) }
+  }
+  @Published var showFiveHourQuota: Bool {
+    didSet { defaults.set(showFiveHourQuota, forKey: Key.showFiveHourQuota) }
   }
   @Published var globalHotKeyEnabled: Bool {
     didSet {
@@ -169,6 +181,7 @@ final class AppSettings: ObservableObject {
   var onLanguageChange: (() -> Void)?
   var onDisplayModeChange: (() -> Void)?
   var onForegroundVisibilityChange: (() -> Void)?
+  var onWindowFollowingChange: (() -> Void)?
   var onNotificationSettingsChange: (() -> Void)?
   var onTaskSettingsChange: (() -> Void)?
   var onQuotaRefreshSettingsChange: (() -> Void)?
@@ -179,6 +192,14 @@ final class AppSettings: ObservableObject {
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
+    // Leave this key out of register(defaults:): registration is process-wide
+    // and would mask an absent stored value with false before migration.
+    // bool(forKey:) already defaults to false when neither key was saved.
+    if defaults.object(forKey: Key.showFiveHourQuota) == nil,
+      let legacy = defaults.object(forKey: Key.legacyShowPlusFiveHourQuota) as? Bool
+    {
+      defaults.set(legacy, forKey: Key.showFiveHourQuota)
+    }
     defaults.register(defaults: [
       Key.appLanguage: AppLanguage.simplifiedChinese.rawValue,
       Key.notificationsEnabled: true,
@@ -195,6 +216,7 @@ final class AppSettings: ObservableObject {
       Key.hoverExpansionEnabled: true,
       Key.hoverCollapseDelay: 0.6,
       Key.showPanelOnLaunch: true,
+      Key.followCodexWindow: true,
       Key.showOnlyWhenChatGPTIsFrontmost: true,
       Key.showSupplementaryGPTQuotas: false,
       Key.shortcutEnabled: true,
@@ -223,10 +245,12 @@ final class AppSettings: ObservableObject {
     hoverExpansionEnabled = defaults.bool(forKey: Key.hoverExpansionEnabled)
     hoverCollapseDelay = defaults.double(forKey: Key.hoverCollapseDelay)
     showPanelOnLaunch = defaults.bool(forKey: Key.showPanelOnLaunch)
+    followCodexWindow = defaults.bool(forKey: Key.followCodexWindow)
     showOnlyWhenChatGPTIsFrontmost = defaults.bool(
       forKey: Key.showOnlyWhenChatGPTIsFrontmost
     )
     showSupplementaryGPTQuotas = defaults.bool(forKey: Key.showSupplementaryGPTQuotas)
+    showFiveHourQuota = defaults.bool(forKey: Key.showFiveHourQuota)
     globalHotKeyEnabled = defaults.bool(forKey: Key.shortcutEnabled)
     showRecentTasks = defaults.bool(forKey: Key.showRecentTasks)
     recentTaskCount = min(8, max(1, defaults.integer(forKey: Key.recentTaskCount)))

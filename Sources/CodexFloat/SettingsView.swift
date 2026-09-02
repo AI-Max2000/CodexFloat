@@ -6,11 +6,15 @@ enum SettingsLayout {
 }
 
 struct SettingsView: View {
+  @ObservedObject var model: AppModel
   @ObservedObject var settings: AppSettings
   let onPreviewFeedback: (AppFeedbackKind) -> Void
   let onExportDiagnostics: () -> Void
 
   private var strings: AppStrings { AppStrings(language: settings.appLanguage) }
+  private var quotaDisplay: QuotaDisplayPolicy {
+    QuotaDisplayPolicy(snapshot: model.quota, showFiveHour: settings.showFiveHourQuota)
+  }
 
   var body: some View {
     Form {
@@ -52,6 +56,12 @@ struct SettingsView: View {
         }
         .disabled(!settings.hoverExpansionEnabled || settings.quotaDisplayMode == .menuBar)
         Toggle(strings.text(.showOnLaunch), isOn: $settings.showPanelOnLaunch)
+        if settings.quotaDisplayMode != .menuBar {
+          Toggle(strings.text(.followCodexWindow), isOn: $settings.followCodexWindow)
+          Text(strings.text(.followCodexWindowHelp))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
         Toggle(
           strings.text(.frontmostOnly),
           isOn: $settings.showOnlyWhenChatGPTIsFrontmost
@@ -157,6 +167,21 @@ struct SettingsView: View {
       }
 
       Section(strings.text(.quotaDisplaySection)) {
+        if quotaDisplay.hasFiveHourWindow {
+          Toggle(
+            strings.text(.showFiveHourQuota),
+            isOn: Binding(
+              get: { settings.showFiveHourQuota || quotaDisplay.isFiveHourAlwaysVisible },
+              set: { settings.showFiveHourQuota = $0 }
+            )
+          )
+          .disabled(quotaDisplay.isFiveHourAlwaysVisible)
+          Text(strings.text(
+            quotaDisplay.isFiveHourAlwaysVisible ? .fiveHourOnlyHelp : .fiveHourQuotaHelp
+          ))
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        }
         HStack {
           Text(strings.text(.autoRefreshInterval))
           Spacer()

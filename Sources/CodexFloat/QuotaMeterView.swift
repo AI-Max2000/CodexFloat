@@ -79,7 +79,8 @@ struct MinimalQuotaMeterView: View {
   let freshness: DataFreshness?
   let language: AppLanguage
 
-  private let meterHeight: CGFloat = 38
+  var meterHeight: CGFloat = 38
+  var accessibilityName: String?
   private var clampedRemaining: Double? {
     remainingPercent.map { min(100, max(0, $0)) }
   }
@@ -124,7 +125,10 @@ struct MinimalQuotaMeterView: View {
   }
 
   private var accessibilityTitle: String {
-    switch language {
+    if let accessibilityName {
+      return QuotaMeterAccessibility.title(name: accessibilityName, language: language)
+    }
+    return switch language {
     case .simplifiedChinese: "Codex 极简额度"
     case .traditionalChinese: "Codex 極簡額度"
     case .english: "Codex minimal quota meter"

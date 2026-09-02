@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   )
   private var model: AppModel?
   private var panelController: FloatingPanelController?
+  private var codexWindowTracker: CodexWindowTracker?
   private var settingsWindow: NSWindowController?
   private var activityWindow: NSWindowController?
   private var quotaWindow: NSWindowController?
@@ -52,11 +53,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self?.menuBarPanelHoverChanged(isHovering)
       }
       self.panelController = panelController
+      codexWindowTracker = CodexWindowTracker(
+        window: panelController.panel,
+        onMovementChanged: { [weak panelController] moving in
+          panelController?.setCodexWindowMoving(moving)
+        }
+      ) { [weak panelController] window in
+        panelController?.updateCodexWindow(window)
+      }
       configureStatusItem()
       model.settings.onGlobalHotKeyChange = { [weak self] in self?.configureGlobalHotKey() }
       model.settings.onLanguageChange = { [weak self] in self?.languageDidChange() }
       model.settings.onDisplayModeChange = { [weak self] in self?.displayModeDidChange() }
       model.settings.onForegroundVisibilityChange = { [weak self] in
+        self?.applyPanelVisibilityPolicy()
+      }
+      model.settings.onWindowFollowingChange = { [weak self] in
         self?.applyPanelVisibilityPolicy()
       }
       observeModel(model)
@@ -98,6 +110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     model?.settings.onLanguageChange = nil
     model?.settings.onDisplayModeChange = nil
     model?.settings.onForegroundVisibilityChange = nil
+    model?.settings.onWindowFollowingChange = nil
+    codexWindowTracker?.stop()
     statusCountdownTimer?.invalidate()
     menuBarHoverHideTask?.cancel()
     feedbackPopover?.close()
@@ -201,6 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard let model else { return }
     if settingsWindow == nil {
       let view = SettingsView(
+        model: model,
         settings: model.settings,
         onPreviewFeedback: { [weak model] kind in model?.previewFeedback(kind) },
         onExportDiagnostics: { [weak self] in self?.exportDiagnostics() }
@@ -270,14 +285,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func handleWake(_ notification: Notification) {
     model?.refreshAfterWakeOrShow()
+    codexWindowTracker?.refresh(selectFrontWindow: true)
   }
 
   @objc private func handleScreensChanged(_ notification: Notification) {
+    codexWindowTracker?.refresh(selectFrontWindow: true)
     panelController?.ensureVisible()
     updateStatusItem()
   }
 
   @objc private func handleApplicationActivated(_ notification: Notification) {
+    codexWindowTracker?.refresh(selectFrontWindow: true)
     if model?.settings.quotaDisplayMode == .menuBar,
       frontmostBundleIdentifier != Bundle.main.bundleIdentifier
     {
@@ -358,20 +376,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     } else {
       toolTip = menuBarQuotaHelp
     }
-    statusItem?.length = MenuBarQuotaIndicator.Layout.statusItemLength
+    let display = QuotaDisplayPolicy(
+      snapshot: model?.quota, showFiveHour: settings.showFiveHourQuota
+    )
+    statusItem?.length =
+      display.isDual
+      ? MenuBarDualQuotaIndicator.statusItemLength : MenuBarQuotaIndicator.Layout.statusItemLength
     button.imagePosition = .imageOnly
     button.imageScaling = .scaleNone
-    button.image = MenuBarQuotaIndicator.image(
-      remainingPercent: model?.quota?.preferredCodexWindow?.remainingPercent,
-      countdown: strings.menuBarBadgeCountdown(
-        to: model?.quota?.preferredCodexWindow?.resetsAt,
-        now: Date()
-      ),
-      lowThreshold: settings.lowThreshold,
-      criticalThreshold: settings.criticalThreshold,
-      appearance: button.effectiveAppearance,
-      isHighlighted: pointerInsideStatusItem || menuBarDetailVisible
-    )
+    if display.isDual {
+      button.image = MenuBarDualQuotaIndicator.image(
+        entries: display.compact, strings: strings, now: Date(),
+        lowThreshold: settings.lowThreshold, criticalThreshold: settings.criticalThreshold,
+        appearance: button.effectiveAppearance,
+        isHighlighted: pointerInsideStatusItem || menuBarDetailVisible
+      )
+    } else {
+      button.image = MenuBarQuotaIndicator.image(
+        remainingPercent: display.compact.first?.window?.remainingPercent,
+        countdown: strings.menuBarBadgeCountdown(
+          to: display.compact.first?.window?.resetsAt,
+          now: Date()
+        ),
+        lowThreshold: settings.lowThreshold,
+        criticalThreshold: settings.criticalThreshold,
+        appearance: button.effectiveAppearance,
+        isHighlighted: pointerInsideStatusItem || menuBarDetailVisible
+      )
+    }
     // A slightly wider native item keeps the number, the smaller percent sign,
     // and the countdown legible without sacrificing its compact menu-bar shape.
     button.title = ""
@@ -403,7 +435,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private var menuBarQuotaTitle: String {
-    guard let window = model?.quota?.preferredCodexWindow else {
+    let display = QuotaDisplayPolicy(
+      snapshot: model?.quota, showFiveHour: model?.settings.showFiveHourQuota ?? false
+    )
+    if display.isDual {
+      return display.compact.map { $0.help(strings, now: Date()) }.joined(separator: " · ")
+    }
+    guard let window = display.compact.first?.window else {
       return strings.text(.menuBarQuotaUnavailable)
     }
     return strings.format(
@@ -414,14 +452,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private var menuBarQuotaHelp: String {
-    guard let window = model?.quota?.preferredCodexWindow else {
+    let display = QuotaDisplayPolicy(
+      snapshot: model?.quota, showFiveHour: model?.settings.showFiveHourQuota ?? false)
+    guard display.compact.contains(where: { $0.window != nil }) else {
       return model?.quotaError ?? strings.text(.quotaUnavailable)
     }
-    return strings.format(
-      .menuBarQuotaHelp,
-      Int(window.remainingPercent.rounded()),
-      strings.menuBarCountdown(to: window.resetsAt, now: Date())
-    )
+    return display.compact.map { $0.help(strings, now: Date()) }.joined(separator: "\n")
   }
 
   private func setUserWantsPanelVisible(_ isVisible: Bool) {
@@ -442,6 +478,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onlyWhenChatGPTIsFrontmost: settings.showOnlyWhenChatGPTIsFrontmost,
         frontmostBundleIdentifier: frontmostBundleIdentifier
       )
+    // Order out before stopping the tracker: clearing movement suppression must
+    // never flash a manually/foreground-hidden panel back onto the screen.
+    if !shouldShow, panelController.panel.isVisible { panelController.hide() }
+    // Temporary movement suppression keeps tracking; a user/policy hide stops it.
+    if shouldShow, settings.followCodexWindow, settings.quotaDisplayMode != .menuBar {
+      codexWindowTracker?.start()
+    } else {
+      codexWindowTracker?.stop()
+    }
     if shouldShow {
       if settings.quotaDisplayMode == .menuBar {
         updateMenuBarPanelAnchor()
@@ -451,8 +496,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       } else if !panelController.panel.isVisible {
         panelController.show(expanded: false)
       }
-    } else if panelController.panel.isVisible {
-      panelController.hide()
     }
     updateStatusItem()
   }
@@ -524,6 +567,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func observeModel(_ model: AppModel) {
+    model.settings.$showFiveHourQuota
+      .dropFirst()
+      .receive(on: RunLoop.main)
+      .sink { [weak self] _ in self?.updateStatusItem() }
+      .store(in: &modelSubscriptions)
+
     model.$quota
       .combineLatest(model.$quotaError)
       .receive(on: RunLoop.main)

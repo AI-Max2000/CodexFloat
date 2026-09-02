@@ -1,4 +1,5 @@
 import AppKit
+import CodexQuotaCore
 
 enum MenuBarStatusItemVisibility {
   static func shouldShow(for displayMode: QuotaDisplayMode) -> Bool {
@@ -284,5 +285,81 @@ enum MenuBarQuotaIndicator {
     if let paragraphStyle { attributes[.paragraphStyle] = paragraphStyle }
     if let shadow { attributes[.shadow] = shadow }
     return attributes
+  }
+}
+
+/// Two named readings in one native item. Fixed slots prevent 9 → 100 or
+/// countdown changes from shifting the item or its hover anchor.
+@MainActor
+enum MenuBarDualQuotaIndicator {
+  static let textWidth: CGFloat = 42
+  static let imageSize = NSSize(width: 100, height: 18)
+  static let statusItemLength: CGFloat = 104
+
+  static func cellFrame(at index: Int) -> NSRect {
+    NSRect(x: CGFloat(index) * 52, y: 0, width: 48, height: 18)
+  }
+
+  static func image(
+    entries: [QuotaDisplayEntry],
+    strings: AppStrings,
+    now: Date,
+    lowThreshold: Double,
+    criticalThreshold: Double,
+    appearance: NSAppearance,
+    isHighlighted: Bool = false
+  ) -> NSImage {
+    NSImage(size: imageSize, flipped: false) { _ in
+      appearance.performAsCurrentDrawingAppearance {
+        if isHighlighted {
+          NSColor.labelColor.withAlphaComponent(
+            MenuBarQuotaIndicator.AppearanceMode.resolve(appearance).hoverBackgroundAlpha
+          ).setFill()
+          NSBezierPath(
+            roundedRect: NSRect(origin: .zero, size: imageSize), xRadius: 5, yRadius: 5
+          ).fill()
+        }
+        for (index, entry) in entries.prefix(2).enumerated() {
+          let cell = cellFrame(at: index)
+          let track = NSRect(x: cell.minX + 1, y: 1, width: 3, height: 16)
+          NSColor.secondaryLabelColor.withAlphaComponent(0.24).setFill()
+          NSBezierPath(roundedRect: track, xRadius: 1.5, yRadius: 1.5).fill()
+          if let remaining = entry.window?.remainingPercent, remaining > 0 {
+            let components = QuotaMeterPalette.components(
+              remainingPercent: remaining,
+              lowThreshold: lowThreshold,
+              criticalThreshold: criticalThreshold
+            )
+            NSColor(
+              calibratedRed: components.red, green: components.green,
+              blue: components.blue, alpha: 1
+            ).setFill()
+            NSBezierPath(
+              roundedRect: NSRect(
+                x: track.minX, y: 1, width: 3, height: max(2, 16 * remaining / 100)),
+              xRadius: 1.5, yRadius: 1.5
+            ).fill()
+          }
+          let paragraph = NSMutableParagraphStyle()
+          paragraph.alignment = .center
+          let value = "\(entry.shortLabel(strings)) \(entry.percentage)"
+          (value as NSString).draw(
+            in: NSRect(x: cell.minX + 6, y: 8, width: textWidth, height: 10),
+            withAttributes: [
+              .font: NSFont.monospacedDigitSystemFont(ofSize: 8, weight: .semibold),
+              .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph,
+            ]
+          )
+          (entry.compactCountdown(strings, now: now) as NSString).draw(
+            in: NSRect(x: cell.minX + 6, y: 0, width: textWidth, height: 8),
+            withAttributes: [
+              .font: NSFont.systemFont(ofSize: 6.3, weight: .medium),
+              .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: paragraph,
+            ]
+          )
+        }
+      }
+      return true
+    }
   }
 }

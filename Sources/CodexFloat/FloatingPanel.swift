@@ -109,6 +109,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   private var collapseTask: Task<Void, Never>?
   private var hoverSettingSubscription: AnyCancellable?
   private var displayModeSubscription: AnyCancellable?
+  private var windowFollowingSubscription: AnyCancellable?
   private var feedbackSubscription: AnyCancellable?
   private var feedbackPresentationIsActive = false
   private var feedbackPresentationWasCollapsed = false
@@ -127,6 +128,10 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   private var userMoveIsInProgress = false
   private var userResizeIsInProgress = false
   private var pendingUserPlacement: PendingUserPlacement?
+  private var codexWindow: TrackedCodexWindow?
+  private var windowPinOffset: WindowPinOffset?
+  private var isApplyingWindowFollow = false
+  private(set) var isHiddenForCodexMovement = false
   var onVisibilityChanged: ((Bool) -> Void)?
   var onOpenSettings: (() -> Void)?
   var onRequestHide: (() -> Void)?
@@ -243,6 +248,16 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       [weak self] _ in
       Task { @MainActor [weak self] in self?.applyDisplayMode() }
     }
+    windowFollowingSubscription = model.settings.$followCodexWindow.dropFirst().sink {
+      [weak self] _ in
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        self.flushPendingPlacementSave()
+        self.windowPinOffset = nil
+        if !self.model.settings.followCodexWindow { self.setCodexWindowMoving(false) }
+        self.updateCodexWindow(self.codexWindow)
+      }
+    }
     feedbackSubscription = model.$transientFeedback.dropFirst().sink { [weak self] feedback in
       Task { @MainActor [weak self] in self?.applyFeedback(feedback) }
     }
@@ -329,6 +344,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   }
 
   func handleHover(_ isHovering: Bool) {
+    guard !isHiddenForCodexMovement else { return }
     if model.settings.quotaDisplayMode == .menuBar {
       onMenuBarHoverChanged?(isHovering)
       return
@@ -407,6 +423,9 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
           generation: transitionGeneration
         ) { [weak self] in
           guard let self else { return }
+          // Codex may have moved while the liquid mask was closing. Resolve the
+          // live anchor here instead of jumping back to a captured first frame.
+          let finalFrame = self.resolvedCollapsedRestingFrame()
           self.panel.setFrame(finalFrame, display: true, animate: false)
           self.setRevealProgress(0, expanding: false, animated: false)
           self.state.isCollapsing = false
@@ -463,7 +482,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   var isSurfaceTransitionInFlight: Bool { state.isCollapsing || state.isExpanding }
 
   func handleMinimalDrag(translation: CGSize, ended: Bool) {
-    guard model.settings.quotaDisplayMode == .minimal,
+    guard !isHiddenForCodexMovement, model.settings.quotaDisplayMode == .minimal,
       state.isCollapsed,
       !state.isCollapsing
     else { return }
@@ -494,6 +513,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     minimalDragStartFrame = nil
     minimalDragVisibleFrame = nil
     isDraggingMinimalBar = false
+    rememberWindowPin(frame: frame)
     placement.saveUserPlacement(
       panel: panel,
       mode: activePlacementMode,
@@ -506,7 +526,84 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       repositionBelowMenuBarAnchor()
       return
     }
+    if model.settings.followCodexWindow, codexWindow != nil {
+      updateCodexWindow(codexWindow)
+      return
+    }
     placement.clampToAvailableScreens(panel: panel)
+  }
+
+  /// Movement suppression is not a user hide: preserve logical visibility and
+  /// tracking, but remove both the rendered surface and its mouse hit target.
+  /// Restoring alpha never orders a window in or changes the user's preference.
+  func setCodexWindowMoving(_ moving: Bool) {
+    let hidden = moving && model.settings.followCodexWindow
+      && model.settings.quotaDisplayMode != .menuBar
+    guard isHiddenForCodexMovement != hidden else { return }
+    isHiddenForCodexMovement = hidden
+    if hidden {
+      panel.alphaValue = 0
+      panel.ignoresMouseEvents = true
+      collapseTask?.cancel()
+      collapseTask = nil
+      isApplyingWindowFollow = true
+      defer { isApplyingWindowFollow = false }
+      finishSurfaceTransitionIfNeeded()
+      if model.settings.hoverExpansionEnabled, model.transientFeedback == nil {
+        setCollapsed(true, animated: false)
+      }
+    } else {
+      // Reapply the last geometry while still invisible: layout/feedback during
+      // the drag may have temporarily prevented a position update.
+      updateCodexWindow(codexWindow)
+      // No slide, fade, show(), quota refresh or visibility-policy callback.
+      panel.alphaValue = 1
+      panel.ignoresMouseEvents = false
+    }
+  }
+
+  /// Repositions both the visible canvas and resting capsule without restarting
+  /// their animation. Programmatic moves never become user placement writes.
+  func updateCodexWindow(_ window: TrackedCodexWindow?) {
+    codexWindow = window
+    if NSEvent.pressedMouseButtons & 1 == 0 { userMoveIsInProgress = false }
+    guard model.settings.followCodexWindow, activePlacementMode != .menuBar,
+      activePlacementMode == model.settings.quotaDisplayMode,
+      let window, !isDraggingMinimalBar, !userResizeIsInProgress,
+      !(userMoveIsInProgress && NSEvent.pressedMouseButtons & 1 == 1)
+    else { return }
+    if windowPinOffset == nil {
+      windowPinOffset = placement.windowPinOffset(for: activePlacementMode)
+        ?? WindowPinOffset(panelFrame: collapsedRestingFrame ?? panel.frame, windowFrame: window.frame)
+    }
+    guard let offset = windowPinOffset,
+      let screen = NSScreen.screens.max(by: {
+        $0.visibleFrame.intersection(window.frame).area < $1.visibleFrame.intersection(window.frame).area
+      }) ?? NSScreen.main
+    else { return }
+    let frame = WindowPinGeometry.frame(
+      offset: offset, windowFrame: window.frame, panelSize: panel.frame.size,
+      expandedSize: NSSize(width: expandedSize.width, height: preferredExpandedHeight),
+      visibleFrame: screen.visibleFrame)
+    let deltaX = frame.minX - panel.frame.minX
+    let deltaY = frame.maxY - panel.frame.maxY
+    guard abs(deltaX) > 0.01 || abs(deltaY) > 0.01 else { return }
+    isApplyingWindowFollow = true
+    if let resting = collapsedRestingFrame {
+      collapsedRestingFrame = resting.offsetBy(dx: deltaX, dy: deltaY)
+    }
+    // Following is translation only. Move the existing composited surface;
+    // don't request an immediate content display or trigger a resize each tick.
+    panel.setFrameOrigin(frame.origin)
+    isApplyingWindowFollow = false
+  }
+
+  private func rememberWindowPin(frame: NSRect) {
+    guard model.settings.followCodexWindow, activePlacementMode != .menuBar,
+      let codexWindow else { return }
+    let offset = WindowPinOffset(panelFrame: frame, windowFrame: codexWindow.frame)
+    windowPinOffset = offset
+    placement.saveWindowPinOffset(offset, for: activePlacementMode)
   }
 
   func setMenuBarAnchor(_ frame: NSRect?) {
@@ -515,24 +612,27 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   }
 
   func windowWillMove(_ notification: Notification) {
-    guard activePlacementMode != .menuBar,
+    guard !isApplyingWindowFollow, activePlacementMode != .menuBar,
       NSEvent.pressedMouseButtons & 1 == 1
     else { return }
     userMoveIsInProgress = true
   }
 
   func windowDidMove(_ notification: Notification) {
+    guard !isApplyingWindowFollow else { return }
     guard model.settings.quotaDisplayMode != .menuBar else { return }
     guard !state.isCollapsing else { return }
     guard !isDraggingMinimalBar else { return }
     alignStandardCollapsedFrameIfNeeded()
     synchronizeCollapsedAnchorWithCurrentPanel()
-    if userMoveIsInProgress || NSEvent.pressedMouseButtons & 1 == 1 {
+    if NSEvent.pressedMouseButtons & 1 == 0 { userMoveIsInProgress = false }
+    if userMoveIsInProgress {
       schedulePlacementSave()
     }
   }
 
   func windowDidResize(_ notification: Notification) {
+    guard !isApplyingWindowFollow else { return }
     if !state.isCollapsed { expandedSize = panel.frame.size }
     if !state.isCollapsed, !state.isExpanding, !state.isCollapsing {
       state.expandedCanvasSize = panel.frame.size
@@ -580,6 +680,8 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     collapsedRestingFrame = nil
     let newMode = model.settings.quotaDisplayMode
     activePlacementMode = newMode
+    if newMode == .menuBar { setCodexWindowMoving(false) }
+    windowPinOffset = nil
     if newMode == .menuBar {
       panel.isMovableByWindowBackground = false
       panel.styleMask.remove(.resizable)
@@ -609,6 +711,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       panel.styleMask.insert(.resizable)
       resize(to: expandedSize, animated: false)
     }
+    updateCodexWindow(codexWindow)
     if model.transientFeedback != nil {
       setCollapsed(false, animated: false)
       return
@@ -807,6 +910,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
 
   private func schedulePlacementSave() {
     guard activePlacementMode != .menuBar else { return }
+    rememberWindowPin(frame: panel.frame)
     pendingUserPlacement = PendingUserPlacement(
       frame: panel.frame,
       mode: activePlacementMode,
@@ -833,7 +937,9 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       expandedWidth: pendingUserPlacement.expandedWidth
     )
     self.pendingUserPlacement = nil
-    userMoveIsInProgress = false
+    // A user can pause mid-drag longer than the save debounce. Keep ownership
+    // until mouse-up so following cannot pull the tool out of their hand.
+    userMoveIsInProgress = userMoveIsInProgress && NSEvent.pressedMouseButtons & 1 == 1
   }
 
   private func restoreFloatingPlacement(for mode: QuotaDisplayMode) {

@@ -350,10 +350,14 @@ struct FloatingPanelView: View {
       || model.isRefreshingTasks
   }
   private var visibleQuotaWindowCount: Int {
-    guard let quota = model.quota else { return 0 }
-    return quota.visibleWindows(
+    quotaDisplay.expanded.count
+  }
+  private var quotaDisplay: QuotaDisplayPolicy {
+    QuotaDisplayPolicy(
+      snapshot: model.quota,
+      showFiveHour: settings.showFiveHourQuota,
       includingSupplementaryGPT: settings.showSupplementaryGPTQuotas
-    ).count
+    )
   }
   private var preferredExpandedHeight: CGFloat {
     FloatingPanelLayout.preferredExpandedHeight(
@@ -564,59 +568,90 @@ struct FloatingPanelView: View {
     }
   }
 
-  private var collapsedContent: some View {
-    HStack(spacing: 7) {
-      freshnessDot
-      if let window = model.quota?.preferredCodexWindow {
-        VStack(alignment: .leading, spacing: 3) {
-          HStack(spacing: 4) {
-            Text("Codex")
-              .font(.system(size: 18, weight: .semibold, design: .rounded))
-              .fixedSize(horizontal: true, vertical: false)
-            Text(strings.format(.remainingCompact, Int(window.remainingPercent.rounded())))
-              .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
-              .fixedSize(horizontal: true, vertical: false)
-            if let count = model.quota?.resetCreditCount, count > 0 {
-              Text(strings.format(.resetCountCompact, count))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.mint)
+  @ViewBuilder private var collapsedContent: some View {
+    if quotaDisplay.isDual {
+      DualCompactQuotaView(
+        entries: quotaDisplay.compact,
+        planName: model.quota.map(strings.compactPlanName) ?? strings.text(.planUnknown),
+        resetCount: model.quota?.resetCreditCount,
+        freshnessColor: freshnessColor,
+        lowThreshold: settings.lowThreshold,
+        criticalThreshold: settings.criticalThreshold,
+        language: settings.appLanguage
+      )
+    } else {
+      HStack(spacing: 7) {
+        freshnessDot
+        if let entry = quotaDisplay.compact.first, let window = entry.window {
+          VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+              Text("Codex")
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .fixedSize(horizontal: true, vertical: false)
+              Text(strings.format(.remainingCompact, Int(window.remainingPercent.rounded())))
+                .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
+                .fixedSize(horizontal: true, vertical: false)
+              if let count = model.quota?.resetCreditCount, count > 0 {
+                Text(strings.format(.resetCountCompact, count))
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(.mint)
+                  .fixedSize(horizontal: true, vertical: false)
+              }
             }
-          }
-          TimelineView(
-            .periodic(
-              from: .now,
-              by: CountdownRefreshPolicy.interval(to: window.resetsAt, now: Date())
-            )
-          ) { context in
-            Text(strings.countdown(to: window.resetsAt, now: context.date))
+            TimelineView(
+              .periodic(
+                from: .now,
+                by: CountdownRefreshPolicy.interval(to: window.resetsAt, now: Date())
+              )
+            ) { context in
+              Text(
+                (entry.kind != .other ? "\(entry.shortLabel(strings)) · " : "")
+                  + strings.countdown(to: window.resetsAt, now: context.date)
+              )
               .font(.caption2.monospacedDigit())
               .foregroundStyle(.secondary)
               .fixedSize(horizontal: true, vertical: false)
+            }
           }
+          .layoutPriority(3)
+          .fixedSize(horizontal: true, vertical: false)
+        } else {
+          Text(
+            model.quota != nil
+              ? strings.text(.quotaWindowNotReturned)
+              : (model.quotaError == nil
+                ? strings.text(.readingQuota) : strings.text(.quotaUnavailable))
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: true, vertical: false)
         }
-        .layoutPriority(3)
-        .fixedSize(horizontal: true, vertical: false)
-      } else {
-        Text(
-          model.quotaError == nil ? strings.text(.readingQuota) : strings.text(.quotaUnavailable)
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: true, vertical: false)
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private var minimalCollapsedContent: some View {
-    MinimalQuotaMeterView(
-      remainingPercent: model.quota?.preferredCodexWindow?.remainingPercent,
-      lowThreshold: settings.lowThreshold,
-      criticalThreshold: settings.criticalThreshold,
-      freshness: model.quota?.freshness,
-      language: settings.appLanguage
-    )
+    Group {
+      if quotaDisplay.isDual {
+        DualMinimalQuotaView(
+          entries: quotaDisplay.compact,
+          lowThreshold: settings.lowThreshold,
+          criticalThreshold: settings.criticalThreshold,
+          freshness: model.quota?.freshness,
+          language: settings.appLanguage
+        )
+      } else {
+        MinimalQuotaMeterView(
+          remainingPercent: quotaDisplay.compact.first?.window?.remainingPercent,
+          lowThreshold: settings.lowThreshold,
+          criticalThreshold: settings.criticalThreshold,
+          freshness: model.quota?.freshness,
+          language: settings.appLanguage,
+          accessibilityName: quotaDisplay.compact.first?.title(strings)
+        )
+      }
+    }
     // Preserve the exact collapsed layout proposal while the NSPanel grows.
     // Without this fixed canvas, the meter expands to the panel's new size
     // and SwiftUI briefly centers it in the middle of the floating surface.
@@ -744,18 +779,30 @@ struct FloatingPanelView: View {
 
   @ViewBuilder
   private var quotaList: some View {
-    if let quota = model.quota, !quota.windows.isEmpty {
-      let windows = quota.visibleWindows(
-        includingSupplementaryGPT: settings.showSupplementaryGPTQuotas)
+    if !quotaDisplay.expanded.isEmpty {
+      let entries = quotaDisplay.expanded
       ScrollView(.vertical) {
         LazyVStack(spacing: 6) {
-          ForEach(windows) { window in
-            quotaRow(window)
+          ForEach(entries) { entry in
+            if let window = entry.window {
+              quotaRow(window, title: entry.title(strings))
+            } else {
+              HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(entry.title(strings)).font(.system(size: 11, weight: .medium))
+                  Text(strings.text(.quotaWindowNotReturned))
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("--").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+              }
+              .frame(height: FloatingPanelLayout.quotaRowHeight)
+            }
           }
         }
       }
       .scrollIndicators(.never)
-      .frame(height: FloatingPanelLayout.quotaListHeight(visibleWindowCount: windows.count))
+      .frame(height: FloatingPanelLayout.quotaListHeight(visibleWindowCount: entries.count))
     } else {
       HStack {
         Text(model.quotaError ?? strings.text(.connectingCodex))
@@ -768,10 +815,10 @@ struct FloatingPanelView: View {
     }
   }
 
-  private func quotaRow(_ window: RateLimitWindow) -> some View {
+  private func quotaRow(_ window: RateLimitWindow, title: String) -> some View {
     HStack(spacing: 8) {
       VStack(alignment: .leading, spacing: 2) {
-        Text(strings.windowDisplayName(window))
+        Text(title)
           .font(.system(size: 11, weight: .medium))
           .lineLimit(1)
         TimelineView(
@@ -807,7 +854,7 @@ struct FloatingPanelView: View {
           criticalThreshold: settings.criticalThreshold,
           width: 74,
           language: settings.appLanguage,
-          accessibilityName: strings.windowDisplayName(window)
+          accessibilityName: title
         )
       }
     }

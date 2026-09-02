@@ -244,10 +244,31 @@ final class PanelPlacementStore {
   }
 
   private let archiveKey = "panelPlacementByScreenAndModeV2"
+  private let pinArchiveKey = "codexWindowPinOffsetsV1"
   private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
+  }
+
+  func windowPinOffset(for mode: QuotaDisplayMode) -> WindowPinOffset? {
+    guard mode != .menuBar,
+      let data = defaults.data(forKey: pinArchiveKey),
+      let offsets = try? JSONDecoder().decode([String: WindowPinOffset].self, from: data),
+      let offset = offsets[mode.rawValue], offset.isValid
+    else { return nil }
+    return offset
+  }
+
+  func saveWindowPinOffset(_ offset: WindowPinOffset, for mode: QuotaDisplayMode) {
+    guard mode != .menuBar, offset.isValid else { return }
+    var offsets = defaults.data(forKey: pinArchiveKey).flatMap {
+      try? JSONDecoder().decode([String: WindowPinOffset].self, from: $0)
+    } ?? [:]
+    offsets[mode.rawValue] = offset
+    if let data = try? JSONEncoder().encode(offsets) {
+      defaults.set(data, forKey: pinArchiveKey)
+    }
   }
 
   @discardableResult
