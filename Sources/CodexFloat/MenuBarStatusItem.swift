@@ -1,0 +1,263 @@
+import AppKit
+
+enum MenuBarStatusItemVisibility {
+  static func shouldShow(for displayMode: QuotaDisplayMode) -> Bool {
+    displayMode == .menuBar
+  }
+}
+
+enum MenuBarStatusItemPlacement {
+  // v5 migrates away from the old leftmost placement, which macOS can
+  // temporarily hide when the menu bar is crowded. AppKit deletes its saved
+  // position when an item is hidden, so we keep a separate copy and restore it
+  // whenever menu-bar mode creates the native item again.
+  static let autosaveName = "com.local.codexfloat.quota-status.native-v5"
+  static let reservedTrailingSystemWidth: CGFloat = 350
+  static let minimumLeadingPosition: CGFloat = 180
+  static let rememberedPositionKey = "CodexFloat Remembered Menu Bar Position v1"
+
+  static var preferredPositionKey: String {
+    "NSStatusItem Preferred Position \(autosaveName)"
+  }
+
+  static func visibleDefaultPosition(for screenFrame: NSRect) -> Int {
+    Int(
+      max(
+        screenFrame.minX + minimumLeadingPosition,
+        screenFrame.maxX - reservedTrailingSystemWidth
+      ).rounded()
+    )
+  }
+
+  static func prepareVisiblePosition(
+    defaults: UserDefaults = .standard,
+    screenFrame: NSRect
+  ) {
+    let appKitPosition = (defaults.object(forKey: preferredPositionKey) as? NSNumber)?.intValue
+    let rememberedPosition =
+      (defaults.object(forKey: rememberedPositionKey) as? NSNumber)?.intValue
+    let position = appKitPosition ?? rememberedPosition ?? visibleDefaultPosition(for: screenFrame)
+    defaults.set(position, forKey: preferredPositionKey)
+    defaults.set(position, forKey: rememberedPositionKey)
+  }
+
+  static func rememberCurrentPosition(defaults: UserDefaults = .standard) {
+    guard let position = defaults.object(forKey: preferredPositionKey) as? NSNumber else {
+      return
+    }
+    defaults.set(position.intValue, forKey: rememberedPositionKey)
+  }
+}
+
+@MainActor
+final class MenuBarStatusItemHoverMonitor: NSObject {
+  private let onHoverChanged: (Bool) -> Void
+  private weak var button: NSStatusBarButton?
+  private var trackingArea: NSTrackingArea?
+
+  init(onHoverChanged: @escaping (Bool) -> Void) {
+    self.onHoverChanged = onHoverChanged
+  }
+
+  func install(on button: NSStatusBarButton) {
+    if let trackingArea, let currentButton = self.button {
+      currentButton.removeTrackingArea(trackingArea)
+    }
+    let trackingArea = NSTrackingArea(
+      rect: .zero,
+      options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+      owner: self,
+      userInfo: nil
+    )
+    button.addTrackingArea(trackingArea)
+    self.button = button
+    self.trackingArea = trackingArea
+  }
+
+  @objc func mouseEntered(with event: NSEvent) {
+    onHoverChanged(true)
+  }
+
+  @objc func mouseExited(with event: NSEvent) {
+    onHoverChanged(false)
+  }
+}
+
+@MainActor
+enum MenuBarStatusItemAnchor {
+  static func screenFrame(for button: NSStatusBarButton) -> NSRect? {
+    guard let window = button.window else { return nil }
+    return window.convertToScreen(button.convert(button.bounds, to: nil))
+  }
+}
+
+@MainActor
+enum MenuBarQuotaIndicator {
+  enum Layout {
+    static let imageSize = NSSize(width: 26, height: 18)
+    static let statusItemLength: CGFloat = 30
+    static let trackFrame = NSRect(x: 1, y: 1, width: 3, height: 16)
+    static let valueFrame = NSRect(x: 4, y: 8, width: 20, height: 10)
+    static let countdownFrame = NSRect(x: 4, y: 0.5, width: 20, height: 7.5)
+  }
+
+  struct PercentageParts {
+    let digits: NSAttributedString
+    let digitsGlyphFrame: NSRect
+    let symbol: NSAttributedString?
+    let symbolFrame: NSRect?
+  }
+
+  static func percentageParts(
+    remainingPercent: Double?,
+    color: NSColor = .white,
+    paragraphStyle: NSParagraphStyle? = nil,
+    shadow: NSShadow? = nil
+  ) -> PercentageParts {
+    guard let remainingPercent else {
+      return PercentageParts(
+        digits: NSAttributedString(
+          string: "--",
+          attributes: textAttributes(
+            font: .monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold),
+            color: color,
+            paragraphStyle: paragraphStyle,
+            shadow: shadow
+          )
+        ),
+        digitsGlyphFrame: .zero,
+        symbol: nil,
+        symbolFrame: nil
+      )
+    }
+
+    let value = Int(min(100, max(0, remainingPercent)).rounded())
+    let usesThreeDigits = value >= 100
+    let digitFont = NSFont.monospacedDigitSystemFont(
+      ofSize: usesThreeDigits ? 6.5 : 8.5,
+      weight: .semibold
+    )
+    let digits = NSAttributedString(
+      string: String(value),
+      attributes: textAttributes(
+        font: digitFont,
+        color: color,
+        paragraphStyle: paragraphStyle,
+        shadow: shadow
+      )
+    )
+    let symbol = NSAttributedString(
+      string: "%",
+      attributes: textAttributes(
+        font: .systemFont(ofSize: usesThreeDigits ? 3.5 : 4.2, weight: .semibold),
+        color: color,
+        paragraphStyle: nil,
+        shadow: shadow
+      )
+    )
+    let digitsSize = digits.size()
+    let digitsGlyphFrame = NSRect(
+      x: Layout.valueFrame.midX - digitsSize.width / 2,
+      y: Layout.valueFrame.midY - digitsSize.height / 2,
+      width: digitsSize.width,
+      height: digitsSize.height
+    )
+    let symbolSize = symbol.size()
+    let desiredSymbolX = digitsGlyphFrame.maxX + 0.7
+    let symbolX = min(Layout.imageSize.width - symbolSize.width, desiredSymbolX)
+    let symbolY = Layout.valueFrame.maxY - symbolSize.height - 0.3
+    return PercentageParts(
+      digits: digits,
+      digitsGlyphFrame: digitsGlyphFrame,
+      symbol: symbol,
+      symbolFrame: NSRect(origin: NSPoint(x: symbolX, y: symbolY), size: symbolSize)
+    )
+  }
+
+  static func image(
+    remainingPercent: Double?,
+    countdown: String,
+    lowThreshold: Double,
+    criticalThreshold: Double
+  ) -> NSImage {
+    let size = Layout.imageSize
+    let remaining = min(100, max(0, remainingPercent ?? 0))
+    let components = remainingPercent.map {
+      QuotaMeterPalette.components(
+        remainingPercent: $0,
+        lowThreshold: lowThreshold,
+        criticalThreshold: criticalThreshold
+      )
+    }
+    let fillColor =
+      components.map {
+        NSColor(
+          calibratedRed: $0.red,
+          green: $0.green,
+          blue: $0.blue,
+          alpha: 1
+        )
+      } ?? NSColor.systemGray
+
+    return NSImage(size: size, flipped: false) { _ in
+      let trackRect = Layout.trackFrame
+      NSColor.secondaryLabelColor.withAlphaComponent(0.25).setFill()
+      NSBezierPath(roundedRect: trackRect, xRadius: 1.5, yRadius: 1.5).fill()
+
+      if remaining > 0 {
+        let fillHeight = max(2, trackRect.height * remaining / 100)
+        let fillRect = NSRect(
+          x: trackRect.minX,
+          y: trackRect.minY,
+          width: trackRect.width,
+          height: fillHeight
+        )
+        fillColor.setFill()
+        NSBezierPath(roundedRect: fillRect, xRadius: 1.5, yRadius: 1.5).fill()
+      }
+
+      let paragraph = NSMutableParagraphStyle()
+      paragraph.alignment = .center
+      let shadow = NSShadow()
+      shadow.shadowColor = NSColor.black.withAlphaComponent(0.58)
+      shadow.shadowBlurRadius = 0.7
+      shadow.shadowOffset = .zero
+      let textColor = NSColor.white
+      let percentage = percentageParts(
+        remainingPercent: remainingPercent,
+        color: textColor,
+        paragraphStyle: paragraph,
+        shadow: shadow
+      )
+      percentage.digits.draw(in: Layout.valueFrame)
+      if let symbol = percentage.symbol, let symbolFrame = percentage.symbolFrame {
+        symbol.draw(in: symbolFrame)
+      }
+      (countdown as NSString).draw(
+        in: Layout.countdownFrame,
+        withAttributes: [
+          .font: NSFont.systemFont(ofSize: 6.3, weight: .medium),
+          .foregroundColor: textColor.withAlphaComponent(0.86),
+          .paragraphStyle: paragraph,
+          .shadow: shadow,
+        ]
+      )
+      return true
+    }
+  }
+
+  private static func textAttributes(
+    font: NSFont,
+    color: NSColor,
+    paragraphStyle: NSParagraphStyle?,
+    shadow: NSShadow?
+  ) -> [NSAttributedString.Key: Any] {
+    var attributes: [NSAttributedString.Key: Any] = [
+      .font: font,
+      .foregroundColor: color,
+    ]
+    if let paragraphStyle { attributes[.paragraphStyle] = paragraphStyle }
+    if let shadow { attributes[.shadow] = shadow }
+    return attributes
+  }
+}
