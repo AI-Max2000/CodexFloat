@@ -4,6 +4,21 @@ All notable changes to Codex Float will be documented in this file.
 
 ## Unreleased
 
+- Added an expiry carousel for extra Reset credits. It starts when the earliest credit is less
+  than seven days from expiry and progressively gives the countdown more display time at the
+  five-day, three-day, and one-day thresholds.
+- Reworked the standard and minimal hover expansion into a continuous liquid-capsule transition.
+  The collapsed content and expanded surface now share one animation clock and a fixed top-left
+  anchor, so the first and final frames no longer appear to switch between separate views.
+- Improved the native menu-bar quota item for both light and dark macOS appearances while keeping
+  its percentage, compact refresh countdown, and hover details legible.
+- Fixed expanded-panel content clipping, inconsistent animated corners, temporary white borders,
+  excessive empty height, and right-side header actions being cut off during expansion.
+- Kept the minimal quota meter stationary while its details open or close, and synchronized a
+  user-moved expanded panel with the compact meter's remembered resting position.
+- Made AppKit motion tests deterministic across CI machines with different accessibility motion
+  settings, replaced timing-sensitive completion checks with bounded state polling, and retained
+  regression coverage for stable anchors, monotonic transitions, and adaptive panel height.
 - Established the initial macOS app source, tests, scripts, resources, and documentation baseline.
 - Prevented rolling quota windows from creating repeated five-hour notifications.
 - Added stable reset-cycle notification IDs and bounded notification-key retention.
