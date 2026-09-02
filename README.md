@@ -4,6 +4,25 @@ Codex Float 是一个 macOS 14+ 原生浮窗助手。它默认只在 ChatGPT/Cod
 
 当前版本正在按公开测试版标准准备：只读，不会消耗 Reset，也不会读取 `auth.json`、聊天正文、rollout 或浏览器 Cookie。Codex Float 是独立社区项目，与 OpenAI 或 X 无隶属、授权或背书关系。
 
+## 界面预览
+
+<p align="center">
+  <img src="docs/Images/codex-float-expanded.png" width="640" alt="Codex Float 悬停展开后的完整浮层，显示额度、任务、重置概率和 Tibo 重置消息">
+</p>
+
+<p align="center"><sub>悬停展开的完整浮层：额度、最近任务、未来 48 小时重置概率与 Tibo 重置公告集中展示。</sub></p>
+
+| 完整额度 | 极简进度条 | 菜单栏额度 |
+|:---:|:---:|:---:|
+| <img src="docs/Images/codex-float-compact.png" width="300" alt="Codex Float 完整额度条"> | <img src="docs/Images/codex-float-minimal.png" width="300" alt="Codex Float 极简竖向进度条"> | <img src="docs/Images/codex-float-menu-bar.png" width="300" alt="Codex Float 原生 macOS 菜单栏额度"> |
+| 显示剩余百分比、刷新倒计时与额外 Reset | 只保留颜色和长度可感知的额度进度 | 真正的系统状态栏项目，悬停展开完整内容 |
+
+<p align="center">
+  <img src="docs/Images/codex-float-display-settings.png" width="760" alt="Codex Float 设置中的三种显示形态切换">
+</p>
+
+<p align="center"><sub>三种形态可随时在设置中切换，并分别记住用户调整后的位置。</sub></p>
+
 ## 已实现
 
 - 原生 `NSPanel + SwiftUI` 浮窗支持三种显示形态：`174×54` 完整额度条、`36×54` 热区内的竖向极简进度条，以及用竖向额度、百分比和倒计时组成的原生 macOS 菜单栏额度。前两种形态悬停后展开为 `340px` 宽的完整浮窗；菜单栏形态悬停后在状态项下方打开完整内容。
