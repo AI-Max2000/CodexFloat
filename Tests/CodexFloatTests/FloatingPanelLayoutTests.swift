@@ -5,8 +5,8 @@ import Testing
 
 @testable import CodexFloat
 
-// AppKit window animations share the main run loop. Serial execution prevents
-// unrelated panel tests from starving display-link callbacks and hiding hitches.
+// AppKit panel transitions share the main run loop. Serial execution keeps the
+// liquid reveal and its completion tasks deterministic in window-level tests.
 @Suite("Floating panel adaptive layout", .serialized)
 struct FloatingPanelLayoutTests {
   @Test func countdownUsesLowPowerUpdatesUntilTheFinalTenMinutes() {
@@ -47,70 +47,151 @@ struct FloatingPanelLayoutTests {
     #expect(collapsedCanvas.maxY < expandedPanel.height)
   }
 
-  @Test func heavyExpandedLayerIsNotRenderedDuringWindowResize() {
+  @Test func expandedLayerStaysMountedForTheNativeRevealAndCollapse() {
     #expect(
-      !FloatingPanelLayout.shouldRenderExpandedLayer(
+      FloatingPanelLayout.shouldRenderExpandedLayer(
         isCollapsed: false,
-        isTransitioning: true
+        isCollapsing: false
       )
     )
     #expect(
       !FloatingPanelLayout.shouldRenderExpandedLayer(
         isCollapsed: true,
-        isTransitioning: false
+        isCollapsing: false
       )
     )
     #expect(
       FloatingPanelLayout.shouldRenderExpandedLayer(
-        isCollapsed: false,
-        isTransitioning: false
+        isCollapsed: true,
+        isCollapsing: true
       )
     )
   }
 
-  @Test func compactMeterRetractsContinuouslyWithoutChangingItsAnchor() {
-    #expect(FloatingPanelLayout.compactRevealFraction(expandedProgress: -1) == 1)
-    #expect(FloatingPanelLayout.compactRevealFraction(expandedProgress: 0) == 1)
-    #expect(FloatingPanelLayout.compactRevealFraction(expandedProgress: 0.25) == 0.75)
-    #expect(FloatingPanelLayout.compactRevealFraction(expandedProgress: 0.75) == 0.25)
-    #expect(FloatingPanelLayout.compactRevealFraction(expandedProgress: 1) == 0)
-    #expect(FloatingPanelLayout.compactRevealFraction(expandedProgress: 2) == 0)
-  }
-
-  @Test func interpolatedFramesStayContinuousAndTopLeftAnchored() {
-    let collapsed = NSRect(x: 180, y: 700, width: 36, height: 54)
-    let expanded = NSRect(x: 180, y: 460, width: 340, height: 294)
-    let frames = (0...16).map { step in
-      FloatingPanelLayout.interpolatedFrame(
-        from: collapsed,
-        to: expanded,
-        progress: Double(step) / 16
-      )
-    }
-
-    #expect(frames.first == collapsed)
-    #expect(frames.last == expanded)
-    #expect(Set(frames.map { Int(($0.width * 2).rounded()) }).count == frames.count)
-    #expect(frames.allSatisfy { abs($0.minX - collapsed.minX) < 0.001 })
-    #expect(frames.allSatisfy { abs($0.maxY - collapsed.maxY) < 0.001 })
-    #expect(zip(frames, frames.dropFirst()).allSatisfy { previous, next in
-      next.width > previous.width && next.height > previous.height
-    })
-  }
-
-  @Test func hoverExpansionCompletesWithoutAHighPerceivedDelay() {
-    #expect(FloatingPanelLayout.hoverExpansionDuration <= 0.17)
-    #expect(FloatingPanelLayout.expandedContentRevealDuration <= 0.14)
+  @Test func liquidCapsuleUsesOneConcurrentDampedMotion() {
+    #expect(FloatingPanelLayout.hoverExpansionDuration == 0.38)
+    #expect(LiquidCapsuleMotion.expansionDuration == 0.38)
+    #expect(LiquidCapsuleMotion.collapseDuration == 0.30)
+    #expect(LiquidCapsuleMotion.completionSettleBuffer == 0.05)
     #expect(
-      FloatingPanelLayout.hoverExpansionDuration
-        + FloatingPanelLayout.expandedContentRevealDuration <= 0.311
+      LiquidCapsuleMotion.expansionCurve
+        == LiquidCapsuleMotion.CubicBezier(x1: 0.22, y1: 0.72, x2: 0.24, y2: 1))
+    #expect(
+      LiquidCapsuleMotion.collapseCurve
+        == LiquidCapsuleMotion.CubicBezier(x1: 0.40, y1: 0, x2: 0.30, y2: 1))
+  }
+
+  @Test func liquidCapsuleMorphsRadiusAndKeepsItsChosenCornerFixed() {
+    let standardSeed = FloatingPanelLayout.liquidSurfaceSeedSize(
+      canvasSize: NSSize(width: 340, height: 260),
+      mode: .standard
     )
+    #expect(standardSeed == NSSize(width: 174, height: 54))
+    let minimalSeed = FloatingPanelLayout.liquidSurfaceSeedSize(
+      canvasSize: NSSize(width: 340, height: 260),
+      mode: .minimal
+    )
+    #expect(minimalSeed == NSSize(width: 36, height: 54))
+    #expect(
+      FloatingPanelLayout.liquidCornerRadius(progress: 0, seedSize: standardSeed) == 18)
+    #expect(
+      FloatingPanelLayout.liquidCornerRadius(progress: 1, seedSize: standardSeed) == 18)
+    #expect(
+      FloatingPanelLayout.liquidCornerRadius(progress: 0.5, seedSize: standardSeed) > 18)
+
+    let bounds = CGRect(x: 10, y: 20, width: 340, height: 260)
+    let standardStart = FloatingPanelLayout.liquidRevealRect(
+      in: bounds,
+      progress: 0,
+      seedSize: standardSeed,
+      anchoredToTrailingEdge: false
+    )
+    let standardEnd = FloatingPanelLayout.liquidRevealRect(
+      in: bounds,
+      progress: 1,
+      seedSize: standardSeed,
+      anchoredToTrailingEdge: false
+    )
+    let minimalStart = FloatingPanelLayout.liquidRevealRect(
+      in: bounds,
+      progress: 0,
+      seedSize: minimalSeed,
+      anchoredToTrailingEdge: false
+    )
+    #expect(standardStart == CGRect(origin: bounds.origin, size: standardSeed))
+    #expect(minimalStart == CGRect(origin: bounds.origin, size: minimalSeed))
+    #expect(standardEnd == bounds)
+
+    let leading = FloatingPanelLayout.liquidRevealRect(
+      in: bounds,
+      progress: 0.5,
+      seedSize: standardSeed,
+      anchoredToTrailingEdge: false
+    )
+    let trailing = FloatingPanelLayout.liquidRevealRect(
+      in: bounds,
+      progress: 0.5,
+      seedSize: standardSeed,
+      anchoredToTrailingEdge: true
+    )
+    #expect(leading.minX == bounds.minX)
+    #expect(trailing.maxX == bounds.maxX)
+    #expect(leading.width == trailing.width)
+    #expect(leading.height == trailing.height)
+  }
+
+  @Test func compactAndExpandedContentShareOneExactMotionClock() {
+    for progress in stride(from: CGFloat(0), through: 1, by: 0.05) {
+      let compact = FloatingPanelLayout.compactContentProgress(
+        surfaceProgress: progress
+      )
+      let expanded = FloatingPanelLayout.expandedContentProgress(
+        surfaceProgress: progress
+      )
+      #expect(abs(compact + expanded - 1) < 0.0001)
+    }
+    #expect(FloatingPanelLayout.compactContentProgress(surfaceProgress: 0) == 1)
+    #expect(FloatingPanelLayout.expandedContentProgress(surfaceProgress: 0) == 0)
+    #expect(FloatingPanelLayout.compactContentProgress(surfaceProgress: 1) == 0)
+    #expect(FloatingPanelLayout.expandedContentProgress(surfaceProgress: 1) == 1)
+  }
+
+  @Test func liquidCapsuleKeepsCompactContentStationaryWhileRollingItAway() {
+    #expect(
+      FloatingPanelLayout.liquidContentOffset(expandedProgress: 0)
+        == CGSize(width: -5, height: -3))
+    #expect(
+      FloatingPanelLayout.liquidContentOffset(expandedProgress: 1) == .zero)
   }
 
   @Test func quotaHeightTracksVisibleRowsAndCapsAtFour() {
+    #expect(FloatingPanelLayout.expandedInnerWidth(canvasWidth: 340) == 316)
+    #expect(FloatingPanelLayout.expandedInnerWidth(canvasWidth: 520) == 496)
     #expect(FloatingPanelLayout.quotaListHeight(visibleWindowCount: 1) == 32)
     #expect(FloatingPanelLayout.quotaListHeight(visibleWindowCount: 2) == 70)
     #expect(FloatingPanelLayout.quotaListHeight(visibleWindowCount: 8) == 146)
+  }
+
+  @Test func headerActionsAlwaysStayInsideTheExpandedSafeArea() {
+    #expect(FloatingPanelLayout.headerActionsWidth(showsProgress: false) == 80)
+    #expect(FloatingPanelLayout.headerActionsWidth(showsProgress: true) == 100)
+    #expect(
+      FloatingPanelLayout.headerIdentityWidth(canvasWidth: 340, showsProgress: false) == 228
+    )
+    #expect(
+      FloatingPanelLayout.headerIdentityWidth(canvasWidth: 340, showsProgress: true) == 208
+    )
+    for showsProgress in [false, true] {
+      let occupiedWidth =
+        FloatingPanelLayout.headerIdentityWidth(
+          canvasWidth: 340,
+          showsProgress: showsProgress
+        )
+        + FloatingPanelLayout.headerGroupSpacing
+        + FloatingPanelLayout.headerActionsWidth(showsProgress: showsProgress)
+        + FloatingPanelLayout.expandedHeaderSafetyInset
+      #expect(occupiedWidth == FloatingPanelLayout.expandedInnerWidth(canvasWidth: 340))
+    }
   }
 
   @Test func taskHeightUsesLoadedRowsInsteadOfConfiguredEmptySlots() {
@@ -227,7 +308,7 @@ struct FloatingPanelLayoutTests {
     #expect(controller.panel.frame.height < 400)
   }
 
-  @Test @MainActor func firstHoverUsesThePrecomputedAdaptiveHeightWithoutOvershoot() async throws {
+  @Test @MainActor func firstHoverUsesOneStableFinalCanvasForTheLiquidReveal() async throws {
     let suiteName = "FloatingPanelFirstHoverTests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
     defaults.removePersistentDomain(forName: suiteName)
@@ -281,20 +362,8 @@ struct FloatingPanelLayoutTests {
     }
 
     #expect(abs(controller.panel.frame.height - expectedHeight) < 1)
-    #expect(sampledHeights.max() ?? 0 <= expectedHeight + 1)
-    #expect(
-      zip(sampledWidths, sampledWidths.dropFirst()).allSatisfy { pair in
-        pair.1 >= pair.0
-      }
-    )
-    let distinctWidths = Set(sampledWidths.map { Int(($0 * 2).rounded()) })
-    // Headless GitHub runners may settle AppKit display-link animations in one
-    // frame. When the runtime exposes intermediate frames, keep the stricter
-    // cadence assertion; the deterministic interpolation test above always
-    // verifies the full 17-frame geometry path.
-    if distinctWidths.count > 1 {
-      #expect(distinctWidths.count >= 8)
-    }
+    #expect(sampledHeights.allSatisfy { abs($0 - expectedHeight) < 1 })
+    #expect(sampledWidths.allSatisfy { abs($0 - 340) < 1 })
   }
 
   @Test func menuBarDetailsAnchorBelowTheQuotaItem() {
@@ -309,6 +378,51 @@ struct FloatingPanelLayoutTests {
     #expect(frame.maxY == anchor.minY)
     #expect(frame.maxX == anchor.maxX)
     #expect(visible.contains(frame))
+  }
+
+  @Test @MainActor func menuBarRevealCanReverseBeforeItsCollapseFinishes() async throws {
+    let suiteName = "MenuBarNativeRevealTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defaults.removePersistentDomain(forName: suiteName)
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let databaseURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("CodexFloatMenuBarReveal-\(UUID().uuidString).sqlite")
+    defer {
+      for suffix in ["", "-wal", "-shm"] {
+        try? FileManager.default.removeItem(
+          at: URL(fileURLWithPath: databaseURL.path + suffix)
+        )
+      }
+    }
+
+    let settings = AppSettings(defaults: defaults)
+    settings.quotaDisplayMode = .menuBar
+    let model = AppModel(
+      store: try SQLiteStore(databaseURL: databaseURL),
+      settings: settings
+    )
+    let controller = FloatingPanelController(
+      model: model,
+      placement: PanelPlacementStore(defaults: defaults),
+      panelStateDefaults: defaults
+    )
+
+    controller.show(expanded: true)
+    #expect(controller.panel.isVisible)
+    controller.hide()
+    #expect(controller.panel.isVisible)
+
+    try await Task.sleep(for: .milliseconds(60))
+    controller.show(expanded: true)
+    try await Task.sleep(for: .milliseconds(180))
+    #expect(controller.panel.isVisible)
+
+    controller.hide()
+    try await Task.sleep(
+      for: .seconds(LiquidCapsuleMotion.collapseDuration + 0.08)
+    )
+    #expect(!controller.panel.isVisible)
   }
 
   @Test func hoverExpansionKeepsTheTopLeftCornerFixedAndGrowsRightAndDown() {
@@ -491,22 +605,24 @@ struct FloatingPanelLayoutTests {
       width: 340,
       height: 260
     )
-    #expect(store.restore(
-      panel: standardWindow,
-      mode: .standard,
-      defaultSize: NSSize(width: 340, height: 260),
-      minimumWidth: 340,
-      maximumWidth: 520,
-      initialFrame: fallback
-    ))
-    #expect(store.restore(
-      panel: minimalWindow,
-      mode: .minimal,
-      defaultSize: NSSize(width: 340, height: 260),
-      minimumWidth: 340,
-      maximumWidth: 520,
-      initialFrame: fallback
-    ))
+    #expect(
+      store.restore(
+        panel: standardWindow,
+        mode: .standard,
+        defaultSize: NSSize(width: 340, height: 260),
+        minimumWidth: 340,
+        maximumWidth: 520,
+        initialFrame: fallback
+      ))
+    #expect(
+      store.restore(
+        panel: minimalWindow,
+        mode: .minimal,
+        defaultSize: NSSize(width: 340, height: 260),
+        minimumWidth: 340,
+        maximumWidth: 520,
+        initialFrame: fallback
+      ))
 
     #expect(abs(standardWindow.frame.minX - standardFrame.minX) < 0.5)
     #expect(abs(standardWindow.frame.maxY - standardFrame.maxY) < 0.5)
@@ -624,14 +740,67 @@ struct FloatingPanelLayoutTests {
     #expect(MenuBarQuotaIndicator.Layout.imageSize == NSSize(width: 26, height: 18))
     #expect(MenuBarQuotaIndicator.Layout.statusItemLength == 30)
     let parts = MenuBarQuotaIndicator.percentageParts(remainingPercent: 79)
-    let visualGap = parts.digitsGlyphFrame.minX
+    let visualGap =
+      parts.digitsGlyphFrame.minX
       - MenuBarQuotaIndicator.Layout.trackFrame.maxX
     #expect(visualGap >= 2.5)
     #expect(visualGap <= 4.5)
-    #expect(MenuBarQuotaIndicator.Layout.imageSize.width
-      >= MenuBarQuotaIndicator.Layout.valueFrame.maxX)
-    #expect(MenuBarQuotaIndicator.Layout.imageSize.height
-      >= MenuBarQuotaIndicator.Layout.valueFrame.maxY)
+    #expect(
+      MenuBarQuotaIndicator.Layout.imageSize.width
+        >= MenuBarQuotaIndicator.Layout.valueFrame.maxX)
+    #expect(
+      MenuBarQuotaIndicator.Layout.imageSize.height
+        >= MenuBarQuotaIndicator.Layout.valueFrame.maxY)
+  }
+
+  @Test @MainActor func menuBarQuotaIndicatorResolvesBothSystemAppearances() throws {
+    let light = try #require(NSAppearance(named: .aqua))
+    let dark = try #require(NSAppearance(named: .darkAqua))
+
+    func luminance(of color: NSColor, appearance: NSAppearance) -> CGFloat {
+      var result: CGFloat = 0
+      appearance.performAsCurrentDrawingAppearance {
+        guard let resolved = color.usingColorSpace(.sRGB) else { return }
+        result = 0.2126 * resolved.redComponent
+          + 0.7152 * resolved.greenComponent
+          + 0.0722 * resolved.blueComponent
+      }
+      return result
+    }
+
+    #expect(MenuBarQuotaIndicator.AppearanceMode.resolve(light) == .light)
+    #expect(MenuBarQuotaIndicator.AppearanceMode.resolve(dark) == .dark)
+    #expect(
+      MenuBarQuotaIndicator.AppearanceMode.light.hoverBackgroundAlpha
+        < MenuBarQuotaIndicator.AppearanceMode.dark.hoverBackgroundAlpha
+    )
+
+    let semanticParts = MenuBarQuotaIndicator.percentageParts(remainingPercent: 62)
+    let semanticTextColor = try #require(
+      semanticParts.digits.attribute(.foregroundColor, at: 0, effectiveRange: nil)
+        as? NSColor
+    )
+    #expect(luminance(of: semanticTextColor, appearance: light) < 0.35)
+    #expect(luminance(of: semanticTextColor, appearance: dark) > 0.65)
+
+    let lightImage = MenuBarQuotaIndicator.image(
+      remainingPercent: 62,
+      countdown: "5天",
+      lowThreshold: 20,
+      criticalThreshold: 5,
+      appearance: light,
+      isHighlighted: true
+    )
+    let darkImage = MenuBarQuotaIndicator.image(
+      remainingPercent: 62,
+      countdown: "5天",
+      lowThreshold: 20,
+      criticalThreshold: 5,
+      appearance: dark,
+      isHighlighted: true
+    )
+    #expect(lightImage.tiffRepresentation != nil)
+    #expect(darkImage.tiffRepresentation != nil)
   }
 
   @Test @MainActor func menuBarQuotaKeepsDigitsCenteredAndAddsASmallerPercentSymbol() throws {
@@ -648,8 +817,9 @@ struct FloatingPanelLayoutTests {
     #expect(parts.digits.string == "79")
     #expect(symbol.string == "%")
     #expect(percentFont.pointSize < digitFont.pointSize)
-    #expect(MenuBarQuotaIndicator.Layout.valueFrame.midX
-      == MenuBarQuotaIndicator.Layout.countdownFrame.midX)
+    #expect(
+      MenuBarQuotaIndicator.Layout.valueFrame.midX
+        == MenuBarQuotaIndicator.Layout.countdownFrame.midX)
     #expect(symbolFrame.minX - parts.digitsGlyphFrame.maxX >= 0.5)
     #expect(symbolFrame.minX < MenuBarQuotaIndicator.Layout.imageSize.width)
     #expect(symbolFrame.maxX <= MenuBarQuotaIndicator.Layout.imageSize.width)
@@ -696,7 +866,8 @@ struct FloatingPanelLayoutTests {
     #expect(defaults.integer(forKey: MenuBarStatusItemPlacement.preferredPositionKey) == 1180)
   }
 
-  @Test @MainActor func movingExpandedPanelUpdatesTheSharedAnchorBeforeSmoothCollapse() async throws {
+  @Test @MainActor func movingExpandedPanelUpdatesTheSharedAnchorBeforeSmoothCollapse() async throws
+  {
     let suiteName = "FloatingPanelMotionTests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
     defaults.removePersistentDomain(forName: suiteName)
@@ -741,7 +912,7 @@ struct FloatingPanelLayoutTests {
     let initialExpansionClock = ContinuousClock()
     let initialExpansionStart = initialExpansionClock.now
     var initialExpansionFrames = [controller.panel.frame]
-    while controller.isFrameTransitionInFlight,
+    while controller.isSurfaceTransitionInFlight,
       initialExpansionStart.duration(to: initialExpansionClock.now) < .seconds(1)
     {
       try await Task.sleep(for: .milliseconds(8))
@@ -749,14 +920,13 @@ struct FloatingPanelLayoutTests {
     }
     #expect(controller.panel.frame.width >= 340)
     let initialDistinctWidths = Set(initialExpansionFrames.map { Int($0.width.rounded()) })
-    if initialDistinctWidths.count > 1 {
-      #expect(initialDistinctWidths.count >= 8)
-    }
+    #expect(initialDistinctWidths == Set([340]))
     #expect(initialExpansionFrames.allSatisfy { abs($0.minX - restingFrame.minX) < 1.0 })
     #expect(initialExpansionFrames.allSatisfy { abs($0.maxY - restingFrame.maxY) < 1.0 })
-    #expect(zip(initialExpansionFrames, initialExpansionFrames.dropFirst()).allSatisfy {
-      previous, next in next.width + 0.5 >= previous.width
-    })
+    #expect(
+      zip(initialExpansionFrames, initialExpansionFrames.dropFirst()).allSatisfy {
+        previous, next in next.width + 0.5 >= previous.width
+      })
     controller.setCollapsed(true, animated: false)
     controller.panel.setFrame(restingFrame, display: true, animate: false)
     controller.windowDidMove(Notification(name: NSWindow.didMoveNotification))
@@ -772,12 +942,13 @@ struct FloatingPanelLayoutTests {
     controller.handleMinimalDrag(translation: dragTranslation, ended: true)
     #expect(controller.panel.frame == draggedRestingFrame)
 
-    // Reversing direction mid-flight must continue from the currently rendered
-    // frame, not jump to either endpoint or lose the compact bar's anchor.
+    // Reversing direction mid-flight keeps the final-size window stable. Only
+    // the liquid clipping boundary reverses, so content never receives a new width.
     controller.setCollapsed(false, animated: true)
     try await Task.sleep(for: .milliseconds(90))
     let interruptedExpansionFrame = controller.panel.frame
-    let canObserveMidFlightReversal = controller.isFrameTransitionInFlight
+    let canObserveMidFlightReversal =
+      controller.isSurfaceTransitionInFlight
       && interruptedExpansionFrame.width > draggedRestingFrame.width
       && interruptedExpansionFrame.width < 340
     if canObserveMidFlightReversal {
@@ -785,7 +956,7 @@ struct FloatingPanelLayoutTests {
       let reversalClock = ContinuousClock()
       let reversalStart = reversalClock.now
       var reversalFrames = [controller.panel.frame]
-      while controller.isFrameTransitionInFlight,
+      while controller.isSurfaceTransitionInFlight,
         reversalStart.duration(to: reversalClock.now) < .seconds(1)
       {
         try await Task.sleep(for: .milliseconds(8))
@@ -794,9 +965,10 @@ struct FloatingPanelLayoutTests {
       #expect(abs(controller.panel.frame.width - draggedRestingFrame.width) < 0.5)
       #expect(reversalFrames.allSatisfy { abs($0.minX - draggedRestingFrame.minX) < 1.0 })
       #expect(reversalFrames.allSatisfy { abs($0.maxY - draggedRestingFrame.maxY) < 1.0 })
-      #expect(zip(reversalFrames, reversalFrames.dropFirst()).allSatisfy { previous, next in
-        next.width <= previous.width + 0.5
-      })
+      #expect(
+        zip(reversalFrames, reversalFrames.dropFirst()).allSatisfy { previous, next in
+          next.width <= previous.width + 0.5
+        })
     } else {
       #expect(abs(interruptedExpansionFrame.width - 340) < 0.5)
       #expect(abs(interruptedExpansionFrame.minX - draggedRestingFrame.minX) < 1.0)
@@ -808,7 +980,7 @@ struct FloatingPanelLayoutTests {
     controller.setCollapsed(false, animated: true)
     let expansionClock = ContinuousClock()
     let expansionStart = expansionClock.now
-    while controller.isFrameTransitionInFlight,
+    while controller.isSurfaceTransitionInFlight,
       expansionStart.duration(to: expansionClock.now) < .seconds(1)
     {
       try await Task.sleep(for: .milliseconds(8))
@@ -847,10 +1019,12 @@ struct FloatingPanelLayoutTests {
     #expect(abs(finalFrame.minY - expectedRestingFrame.minY) < 0.5)
     #expect(abs(finalFrame.width - expectedRestingFrame.width) < 0.5)
     #expect(abs(finalFrame.height - expectedRestingFrame.height) < 0.5)
+    #expect(Set(samples.dropLast().map { Int($0.width.rounded()) }) == Set([340]))
     #expect(samples.allSatisfy { abs($0.minX - expectedRestingFrame.minX) < 1.0 })
     #expect(samples.allSatisfy { abs($0.maxY - expectedRestingFrame.maxY) < 1.0 })
-    #expect(zip(samples, samples.dropFirst()).allSatisfy { previous, next in
-      next.width <= previous.width + 0.5 && next.height <= previous.height + 0.5
-    })
+    #expect(
+      zip(samples, samples.dropFirst()).allSatisfy { previous, next in
+        next.width <= previous.width + 0.5 && next.height <= previous.height + 0.5
+      })
   }
 }

@@ -93,6 +93,22 @@ enum MenuBarStatusItemAnchor {
 
 @MainActor
 enum MenuBarQuotaIndicator {
+  enum AppearanceMode: Equatable {
+    case light
+    case dark
+
+    static func resolve(_ appearance: NSAppearance) -> AppearanceMode {
+      appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
+    }
+
+    var hoverBackgroundAlpha: CGFloat {
+      switch self {
+      case .light: 0.055
+      case .dark: 0.10
+      }
+    }
+  }
+
   enum Layout {
     static let imageSize = NSSize(width: 26, height: 18)
     static let statusItemLength: CGFloat = 30
@@ -110,7 +126,7 @@ enum MenuBarQuotaIndicator {
 
   static func percentageParts(
     remainingPercent: Double?,
-    color: NSColor = .white,
+    color: NSColor = .labelColor,
     paragraphStyle: NSParagraphStyle? = nil,
     shadow: NSShadow? = nil
   ) -> PercentageParts {
@@ -178,9 +194,13 @@ enum MenuBarQuotaIndicator {
     remainingPercent: Double?,
     countdown: String,
     lowThreshold: Double,
-    criticalThreshold: Double
+    criticalThreshold: Double,
+    appearance: NSAppearance? = nil,
+    isHighlighted: Bool = false
   ) -> NSImage {
     let size = Layout.imageSize
+    let drawingAppearance = appearance ?? NSApp.effectiveAppearance
+    let appearanceMode = AppearanceMode.resolve(drawingAppearance)
     let remaining = min(100, max(0, remainingPercent ?? 0))
     let components = remainingPercent.map {
       QuotaMeterPalette.components(
@@ -200,48 +220,53 @@ enum MenuBarQuotaIndicator {
       } ?? NSColor.systemGray
 
     return NSImage(size: size, flipped: false) { _ in
-      let trackRect = Layout.trackFrame
-      NSColor.secondaryLabelColor.withAlphaComponent(0.25).setFill()
-      NSBezierPath(roundedRect: trackRect, xRadius: 1.5, yRadius: 1.5).fill()
+      drawingAppearance.performAsCurrentDrawingAppearance {
+        if isHighlighted {
+          NSColor.labelColor.withAlphaComponent(appearanceMode.hoverBackgroundAlpha).setFill()
+          NSBezierPath(
+            roundedRect: NSRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5),
+            xRadius: 5,
+            yRadius: 5
+          ).fill()
+        }
 
-      if remaining > 0 {
-        let fillHeight = max(2, trackRect.height * remaining / 100)
-        let fillRect = NSRect(
-          x: trackRect.minX,
-          y: trackRect.minY,
-          width: trackRect.width,
-          height: fillHeight
+        let trackRect = Layout.trackFrame
+        NSColor.secondaryLabelColor.withAlphaComponent(0.24).setFill()
+        NSBezierPath(roundedRect: trackRect, xRadius: 1.5, yRadius: 1.5).fill()
+
+        if remaining > 0 {
+          let fillHeight = max(2, trackRect.height * remaining / 100)
+          let fillRect = NSRect(
+            x: trackRect.minX,
+            y: trackRect.minY,
+            width: trackRect.width,
+            height: fillHeight
+          )
+          fillColor.setFill()
+          NSBezierPath(roundedRect: fillRect, xRadius: 1.5, yRadius: 1.5).fill()
+        }
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let percentage = percentageParts(
+          remainingPercent: remainingPercent,
+          color: .labelColor,
+          paragraphStyle: paragraph,
+          shadow: nil
         )
-        fillColor.setFill()
-        NSBezierPath(roundedRect: fillRect, xRadius: 1.5, yRadius: 1.5).fill()
+        percentage.digits.draw(in: Layout.valueFrame)
+        if let symbol = percentage.symbol, let symbolFrame = percentage.symbolFrame {
+          symbol.draw(in: symbolFrame)
+        }
+        (countdown as NSString).draw(
+          in: Layout.countdownFrame,
+          withAttributes: [
+            .font: NSFont.systemFont(ofSize: 6.3, weight: .medium),
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraph,
+          ]
+        )
       }
-
-      let paragraph = NSMutableParagraphStyle()
-      paragraph.alignment = .center
-      let shadow = NSShadow()
-      shadow.shadowColor = NSColor.black.withAlphaComponent(0.58)
-      shadow.shadowBlurRadius = 0.7
-      shadow.shadowOffset = .zero
-      let textColor = NSColor.white
-      let percentage = percentageParts(
-        remainingPercent: remainingPercent,
-        color: textColor,
-        paragraphStyle: paragraph,
-        shadow: shadow
-      )
-      percentage.digits.draw(in: Layout.valueFrame)
-      if let symbol = percentage.symbol, let symbolFrame = percentage.symbolFrame {
-        symbol.draw(in: symbolFrame)
-      }
-      (countdown as NSString).draw(
-        in: Layout.countdownFrame,
-        withAttributes: [
-          .font: NSFont.systemFont(ofSize: 6.3, weight: .medium),
-          .foregroundColor: textColor.withAlphaComponent(0.86),
-          .paragraphStyle: paragraph,
-          .shadow: shadow,
-        ]
-      )
       return true
     }
   }

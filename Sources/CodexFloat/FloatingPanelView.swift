@@ -17,6 +17,30 @@ enum CountdownRefreshPolicy {
   }
 }
 
+enum LiquidCapsuleMotion {
+  struct CubicBezier: Equatable, Sendable {
+    let x1: Double
+    let y1: Double
+    let x2: Double
+    let y2: Double
+  }
+
+  // Keep the curve monotonic. The previous y overshoot reached a clamped 100%
+  // before the animation clock finished, which looked like a dropped tail frame.
+  static let expansionDuration: TimeInterval = 0.38
+  static let collapseDuration: TimeInterval = 0.30
+  static let completionSettleBuffer: TimeInterval = 0.05
+  static let expansionCurve = CubicBezier(x1: 0.22, y1: 0.72, x2: 0.24, y2: 1.0)
+  static let collapseCurve = CubicBezier(x1: 0.40, y1: 0.0, x2: 0.30, y2: 1.0)
+
+  static func animation(expanding: Bool, reduceMotion: Bool) -> Animation? {
+    guard !reduceMotion else { return nil }
+    let curve = expanding ? expansionCurve : collapseCurve
+    let duration = expanding ? expansionDuration : collapseDuration
+    return .timingCurve(curve.x1, curve.y1, curve.x2, curve.y2, duration: duration)
+  }
+}
+
 enum FloatingPanelLayout {
   static let collapsedWidth: CGFloat = 174
   static let collapsedHeight: CGFloat = 54
@@ -32,6 +56,11 @@ enum FloatingPanelLayout {
   static let expandedSectionSpacing: CGFloat = 7
   static let expandedDividerHeight: CGFloat = 1
   static let expandedHeaderHeight: CGFloat = 40
+  static let expandedHeaderSafetyInset: CGFloat = 2
+  static let headerGroupSpacing: CGFloat = 6
+  static let headerActionSpacing: CGFloat = 4
+  static let headerButtonSize: CGFloat = 24
+  static let headerProgressSize: CGFloat = 16
   static let quotaRowHeight: CGFloat = 32
   static let quotaRowSpacing: CGFloat = 6
   static let taskRowSlotHeight: CGFloat = 24
@@ -46,28 +75,66 @@ enum FloatingPanelLayout {
   static let feedbackDefaultHeight: CGFloat = 78
   static let feedbackMaximumHeight: CGFloat = 96
   static let panelCornerRadius: CGFloat = 18
-  static let hoverExpansionDuration: TimeInterval = 0.17
-  static let expandedContentRevealDuration: TimeInterval = 0.14
+  static let menuBarLiquidSeedSize = NSSize(width: 74, height: 18)
+  static let hoverExpansionDuration = LiquidCapsuleMotion.expansionDuration
 
-  static func shouldRenderExpandedLayer(isCollapsed: Bool, isTransitioning: Bool) -> Bool {
-    !isCollapsed && !isTransitioning
+  static func shouldRenderExpandedLayer(isCollapsed: Bool, isCollapsing: Bool) -> Bool {
+    !isCollapsed || isCollapsing
   }
 
-  static func compactRevealFraction(expandedProgress: CGFloat) -> CGFloat {
-    1 - min(1, max(0, expandedProgress))
-  }
-
-  static func interpolatedFrame(from start: NSRect, to end: NSRect, progress: Double) -> NSRect {
-    let amount = CGFloat(min(1, max(0, progress)))
-    func interpolate(_ startValue: CGFloat, _ endValue: CGFloat) -> CGFloat {
-      startValue + (endValue - startValue) * amount
+  static func liquidSurfaceSeedSize(
+    canvasSize: NSSize,
+    mode: QuotaDisplayMode
+  ) -> NSSize {
+    switch mode {
+    case .standard:
+      return NSSize(width: collapsedWidth, height: collapsedHeight)
+    case .minimal:
+      return NSSize(width: minimalCollapsedWidth, height: minimalCollapsedHeight)
+    case .menuBar:
+      return menuBarLiquidSeedSize
     }
-    return NSRect(
-      x: interpolate(start.minX, end.minX),
-      y: interpolate(start.minY, end.minY),
-      width: interpolate(start.width, end.width),
-      height: interpolate(start.height, end.height)
-    )
+  }
+
+  static func liquidCornerRadius(
+    progress: CGFloat,
+    seedSize: NSSize
+  ) -> CGFloat {
+    let amount = min(1, max(0, progress))
+    // Both end frames use the exact same corner radius. The radius only swells
+    // in the middle, which preserves the liquid character without changing
+    // shape on the handoff frame.
+    let availableBulge = max(0, min(seedSize.width, seedSize.height) / 2 - panelCornerRadius)
+    let bulge = min(8, max(4, availableBulge))
+    return panelCornerRadius + sin(.pi * amount) * bulge
+  }
+
+  static func compactContentProgress(surfaceProgress: CGFloat) -> CGFloat {
+    1 - min(1, max(0, surfaceProgress))
+  }
+
+  static func expandedContentProgress(surfaceProgress: CGFloat) -> CGFloat {
+    min(1, max(0, surfaceProgress))
+  }
+
+  static func liquidContentOffset(expandedProgress: CGFloat) -> CGSize {
+    let amount = 1 - min(1, max(0, expandedProgress))
+    return CGSize(width: -5 * amount, height: -3 * amount)
+  }
+
+  static func liquidRevealRect(
+    in bounds: CGRect,
+    progress: CGFloat,
+    seedSize: NSSize,
+    anchoredToTrailingEdge: Bool
+  ) -> CGRect {
+    let amount = min(1, max(0, progress))
+    let seedWidth = min(bounds.width, max(0, seedSize.width))
+    let seedHeight = min(bounds.height, max(0, seedSize.height))
+    let width = seedWidth + (bounds.width - seedWidth) * amount
+    let height = seedHeight + (bounds.height - seedHeight) * amount
+    let x = anchoredToTrailingEdge ? bounds.maxX - width : bounds.minX
+    return CGRect(x: x, y: bounds.minY, width: width, height: height)
   }
 
   static func draggedFrame(
@@ -86,6 +153,27 @@ enum FloatingPanelLayout {
     let rowCount = max(1, min(visibleWindowCount, 4))
     return CGFloat(rowCount) * quotaRowHeight
       + CGFloat(max(0, rowCount - 1)) * quotaRowSpacing
+  }
+
+  static func expandedInnerWidth(canvasWidth: CGFloat) -> CGFloat {
+    max(0, canvasWidth - expandedPadding * 2)
+  }
+
+  static func headerActionsWidth(showsProgress: Bool) -> CGFloat {
+    let buttonWidth = headerButtonSize * 3 + headerActionSpacing * 2
+    return showsProgress
+      ? buttonWidth + headerActionSpacing + headerProgressSize
+      : buttonWidth
+  }
+
+  static func headerIdentityWidth(canvasWidth: CGFloat, showsProgress: Bool) -> CGFloat {
+    max(
+      0,
+      expandedInnerWidth(canvasWidth: canvasWidth)
+        - expandedHeaderSafetyInset
+        - headerGroupSpacing
+        - headerActionsWidth(showsProgress: showsProgress)
+    )
   }
 
   static func taskListHeight(configuredCount: Int, loadedCount: Int) -> CGFloat {
@@ -122,18 +210,22 @@ enum FloatingPanelLayout {
     showsResetProbability: Bool,
     feedbackHeight: CGFloat
   ) -> CGFloat {
-    var sections = [expandedHeaderHeight, quotaListHeight(
-      visibleWindowCount: visibleQuotaWindowCount
-    )]
+    var sections = [
+      expandedHeaderHeight,
+      quotaListHeight(
+        visibleWindowCount: visibleQuotaWindowCount
+      ),
+    ]
     if feedbackHeight > 0 {
       sections.insert(max(feedbackMinimumHeight, feedbackHeight), at: 0)
     }
     if showsRecentTasks {
       sections.append(expandedDividerHeight)
-      sections.append(recentTasksHeight(
-        configuredCount: configuredTaskCount,
-        loadedCount: loadedTaskCount
-      ))
+      sections.append(
+        recentTasksHeight(
+          configuredCount: configuredTaskCount,
+          loadedCount: loadedTaskCount
+        ))
     }
     if showsFeed {
       sections.append(expandedDividerHeight)
@@ -221,13 +313,41 @@ struct FloatingPanelView: View {
   let onPreferredExpandedHeightChanged: (CGFloat) -> Void
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var feedbackBannerHeight: CGFloat = 0
-  @State private var expandedRevealProgress: CGFloat = 0
 
   private var strings: AppStrings { AppStrings(language: settings.appLanguage) }
   private var isTransitioning: Bool { panelState.isCollapsing || panelState.isExpanding }
   private var isMinimalMode: Bool { settings.quotaDisplayMode == .minimal }
-  private var panelChromeOpacity: Double {
-    isMinimalMode && panelState.isCollapsed && !isTransitioning ? 0 : 1
+  private var expandedRevealProgress: CGFloat { panelState.revealProgress }
+  private var liquidChromeOpacity: Double {
+    // The large material surface must not be visible on the compact endpoint.
+    // A compact, fixed-size material surface owns that frame so resizing the
+    // backing NSWindow cannot alter its blur sample and expose a second handoff.
+    Double(expandedContentProgress)
+  }
+  private var liquidSurfaceProgress: CGFloat {
+    settings.quotaDisplayMode == .menuBar
+      ? panelState.menuBarPresentationProgress
+      : expandedRevealProgress
+  }
+  private var liquidSeedSize: NSSize {
+    FloatingPanelLayout.liquidSurfaceSeedSize(
+      canvasSize: panelState.expandedCanvasSize,
+      mode: settings.quotaDisplayMode
+    )
+  }
+  private var compactContentProgress: CGFloat {
+    FloatingPanelLayout.compactContentProgress(
+      surfaceProgress: expandedRevealProgress
+    )
+  }
+  private var expandedContentProgress: CGFloat {
+    FloatingPanelLayout.expandedContentProgress(
+      surfaceProgress: liquidSurfaceProgress
+    )
+  }
+  private var headerShowsProgress: Bool {
+    model.isRefreshingQuota || model.isRefreshingFeed || model.isRefreshingResetForecast
+      || model.isRefreshingTasks
   }
   private var visibleQuotaWindowCount: Int {
     guard let quota = model.quota else { return 0 }
@@ -252,67 +372,14 @@ struct FloatingPanelView: View {
 
   var body: some View {
     ZStack(alignment: .topLeading) {
-      // Keep this inexpensive layer alive as the stationary transition surface.
-      // The expanded hierarchy contains lists, materials, and TimelineViews;
-      // laying it out on every frame resize makes the window miss vsync.
-      // Keep the compact presentation mounted for the full handoff. Its mask
-      // retracts from the bottom while expanded content reveals left-to-right,
-      // so it never jumps, recenters, or disappears in a single frame.
-      compactLayer
-        .mask(alignment: .top) {
-          Rectangle()
-            .scaleEffect(
-              x: 1,
-              y: FloatingPanelLayout.compactRevealFraction(
-                expandedProgress: expandedRevealProgress
-              ),
-              anchor: .top
-            )
-        }
-        .allowsHitTesting(panelState.isCollapsed && !isTransitioning)
-        .accessibilityHidden(!panelState.isCollapsed)
-
-      if FloatingPanelLayout.shouldRenderExpandedLayer(
-        isCollapsed: panelState.isCollapsed,
-        isTransitioning: isTransitioning
-      ) {
-        expandedLayer
-          .mask(alignment: .leading) {
-            Rectangle()
-              .scaleEffect(
-                x: reduceMotion ? 1 : expandedRevealProgress,
-                y: 1,
-                anchor: .leading
-              )
-          }
-      }
+      contentLayers
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background {
-      panelShape
-        .fill(.ultraThinMaterial)
-        .opacity(panelChromeOpacity)
-    }
-    .overlay {
-      panelShape
-        .strokeBorder(.primary.opacity(0.10), lineWidth: 0.7)
-        .opacity(panelChromeOpacity)
-    }
-    // Clip every content layer with the exact same continuous curve as the
-    // material and border. This prevents partially laid-out rows from painting
-    // into the transparent corners while the NSPanel changes size.
-    .clipShape(panelShape)
-    .contentShape(panelShape)
+    // Keep the final interaction region available while the liquid boundary
+    // catches up, so moving from the compact entry into the opening panel does
+    // not accidentally reverse the animation.
+    .contentShape(Rectangle())
     .onHover(perform: onHoverChanged)
-    .onAppear {
-      synchronizeContentLayers(isCollapsed: panelState.isCollapsed)
-    }
-    .onChange(of: panelState.isCollapsed) { _, isCollapsed in
-      animateContentLayers(isCollapsed: isCollapsed)
-    }
-    .onChange(of: isTransitioning) { _, transitioning in
-      animateContentAfterFrameTransition(isTransitioning: transitioning)
-    }
     // Keep the controller's target height current even while only the collapsed
     // presentation is visible. Otherwise the first hover starts toward the old
     // height and is corrected without animation after expandedContent appears.
@@ -324,15 +391,101 @@ struct FloatingPanelView: View {
     }
   }
 
-  private var panelShape: RoundedRectangle {
+  @ViewBuilder private var contentLayers: some View {
+    liquidSurface
+
+    compactPresentation
+      .mask(alignment: .top) {
+        Rectangle()
+          .scaleEffect(
+            x: 1,
+            y: compactContentProgress,
+            anchor: .top
+          )
+      }
+      .allowsHitTesting(panelState.isCollapsed && !isTransitioning)
+      .accessibilityHidden(!panelState.isCollapsed)
+  }
+
+  private var liquidSurface: some View {
+    ZStack(alignment: .topLeading) {
+      Rectangle()
+        .fill(.ultraThinMaterial)
+        .opacity(liquidChromeOpacity)
+
+      if FloatingPanelLayout.shouldRenderExpandedLayer(
+        isCollapsed: panelState.isCollapsed,
+        isCollapsing: panelState.isCollapsing
+      ) {
+        expandedLayer
+          .offset(
+            FloatingPanelLayout.liquidContentOffset(
+              expandedProgress: expandedRevealProgress
+            )
+          )
+          // Cache the stable final-size hierarchy as one compositing surface.
+          // Only the cheap mask transforms during the hover animation.
+          .compositingGroup()
+          .mask(alignment: .topLeading) {
+            Rectangle()
+              .scaleEffect(
+                x: expandedContentProgress,
+                y: expandedContentProgress,
+                anchor: .topLeading
+              )
+          }
+      }
+    }
+    // Apply the liquid boundary once to the material and expanded hierarchy,
+    // instead of recalculating the same animated path for each child layer.
+    .mask {
+      presentationShape.fill(.white)
+    }
+    .overlay {
+      presentationShape
+        .strokeBorder(.primary.opacity(0.10), lineWidth: 0.7)
+        .opacity(liquidChromeOpacity)
+    }
+  }
+
+  private var compactPresentation: some View {
+    compactLayer
+      .background {
+        compactSurfaceShape
+          .fill(.ultraThinMaterial)
+          .opacity(isMinimalMode ? 0 : 1)
+      }
+      .overlay {
+        compactSurfaceShape
+          .strokeBorder(.primary.opacity(0.10), lineWidth: 0.7)
+          .opacity(isMinimalMode ? 0 : 1)
+      }
+      .clipShape(compactSurfaceShape)
+  }
+
+  private var compactSurfaceShape: RoundedRectangle {
     RoundedRectangle(
       cornerRadius: FloatingPanelLayout.panelCornerRadius,
       style: .continuous
     )
   }
 
+  private var presentationShape: LiquidCapsuleRevealShape {
+    LiquidCapsuleRevealShape(
+      progress: reduceMotion ? (panelState.isCollapsed ? 0 : 1) : liquidSurfaceProgress,
+      seedSize: liquidSeedSize,
+      anchoredToTrailingEdge: settings.quotaDisplayMode == .menuBar
+    )
+  }
+
   private var expandedLayer: some View {
     expandedContent
+      .frame(
+        width: FloatingPanelLayout.expandedInnerWidth(
+          canvasWidth: panelState.expandedCanvasSize.width
+        ),
+        alignment: .topLeading
+      )
       .padding(
         EdgeInsets(
           top: FloatingPanelLayout.expandedPadding,
@@ -341,7 +494,13 @@ struct FloatingPanelView: View {
           trailing: FloatingPanelLayout.expandedPadding
         )
       )
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+      // The hierarchy always receives the final inner width. The liquid shape
+      // reveals this stable canvas without re-centering individual sections.
+      .frame(
+        width: panelState.expandedCanvasSize.width,
+        height: panelState.expandedCanvasSize.height,
+        alignment: .topLeading
+      )
   }
 
   @ViewBuilder private var compactLayer: some View {
@@ -364,65 +523,11 @@ struct FloatingPanelView: View {
     }
   }
 
-  private func synchronizeContentLayers(isCollapsed: Bool) {
-    expandedRevealProgress = isCollapsed ? 0 : 1
-  }
-
-  private func animateContentLayers(isCollapsed: Bool) {
-    guard !reduceMotion else {
-      synchronizeContentLayers(isCollapsed: isCollapsed)
-      return
-    }
-
-    if isCollapsed {
-      // Remove wide rows in the same update that starts the collapse. Keeping
-      // them mounted after the window narrows would recreate the cropped edge.
-      var transaction = Transaction(animation: nil)
-      transaction.disablesAnimations = true
-      withTransaction(transaction) {
-        expandedRevealProgress = 0
-      }
-    } else if !isTransitioning {
-      revealExpandedContent()
-    }
-  }
-
-  private func animateContentAfterFrameTransition(isTransitioning: Bool) {
-    guard !reduceMotion else {
-      synchronizeContentLayers(isCollapsed: panelState.isCollapsed)
-      return
-    }
-
-    if isTransitioning {
-      var transaction = Transaction(animation: nil)
-      transaction.disablesAnimations = true
-      withTransaction(transaction) {
-        expandedRevealProgress = 0
-      }
-    } else if !panelState.isCollapsed {
-      revealExpandedContent()
-    }
-  }
-
-  private func revealExpandedContent() {
-    withAnimation(
-      .timingCurve(
-        0.37,
-        0.0,
-        0.63,
-        1.0,
-        duration: FloatingPanelLayout.expandedContentRevealDuration
-      )
-    ) {
-      expandedRevealProgress = 1
-    }
-  }
-
   private var expandedContent: some View {
-    VStack(spacing: FloatingPanelLayout.expandedSectionSpacing) {
+    VStack(alignment: .leading, spacing: FloatingPanelLayout.expandedSectionSpacing) {
       if let feedback = model.transientFeedback {
         FeedbackBannerView(feedback: feedback, language: settings.appLanguage)
-          .transition(.move(edge: .top).combined(with: .opacity))
+          .transition(.nativeTopReveal)
           .background {
             GeometryReader { proxy in
               Color.clear.preference(
@@ -448,7 +553,10 @@ struct FloatingPanelView: View {
       }
     }
     .animation(
-      reduceMotion ? nil : .snappy(duration: 0.24),
+      LiquidCapsuleMotion.animation(
+        expanding: model.transientFeedback != nil,
+        reduceMotion: reduceMotion
+      ),
       value: model.transientFeedback?.id
     )
     .onPreferenceChange(FeedbackBannerHeightKey.self) { height in
@@ -475,10 +583,12 @@ struct FloatingPanelView: View {
                 .fixedSize(horizontal: true, vertical: false)
             }
           }
-          TimelineView(.periodic(
-            from: .now,
-            by: CountdownRefreshPolicy.interval(to: window.resetsAt, now: Date())
-          )) { context in
+          TimelineView(
+            .periodic(
+              from: .now,
+              by: CountdownRefreshPolicy.interval(to: window.resetsAt, now: Date())
+            )
+          ) { context in
             Text(strings.countdown(to: window.resetsAt, now: context.date))
               .font(.caption2.monospacedDigit())
               .foregroundStyle(.secondary)
@@ -491,9 +601,9 @@ struct FloatingPanelView: View {
         Text(
           model.quotaError == nil ? strings.text(.readingQuota) : strings.text(.quotaUnavailable)
         )
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .fixedSize(horizontal: true, vertical: false)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: true, vertical: false)
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -529,39 +639,22 @@ struct FloatingPanelView: View {
 
   private var header: some View {
     VStack(alignment: .leading, spacing: 1) {
-      HStack(spacing: 6) {
-        freshnessDot
-        Text("Codex")
-          .font(.system(size: 14, weight: .semibold))
+      HStack(spacing: FloatingPanelLayout.headerGroupSpacing) {
+        headerIdentity
+          .frame(
+            width: FloatingPanelLayout.headerIdentityWidth(
+              canvasWidth: panelState.expandedCanvasSize.width,
+              showsProgress: headerShowsProgress
+            ),
+            alignment: .leading
+          )
+          .clipped()
+        headerActions
           .fixedSize(horizontal: true, vertical: false)
-        if let quota = model.quota, quota.planType != nil {
-          Text(strings.compactPlanName(quota))
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: true, vertical: false)
-        }
-        if let count = model.quota?.resetCreditCount, count > 0 {
-          Text(strings.format(.resetCountHeader, count))
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.mint)
-            .fixedSize(horizontal: true, vertical: false)
-        }
-        Spacer(minLength: 3)
-        if model.isRefreshingQuota || model.isRefreshingFeed || model.isRefreshingResetForecast
-          || model.isRefreshingTasks
-        {
-          ProgressView().controlSize(.small).scaleEffect(0.65)
-        }
-        iconButton("arrow.clockwise", action: onRefresh, disabled: model.isRefreshingQuota)
-          .accessibilityLabel(strings.text(.refresh))
-          .help(strings.text(.menuRefresh))
-        iconButton("gearshape", action: onOpenSettings)
-          .accessibilityLabel(strings.text(.settings))
-          .help(strings.text(.settings))
-        iconButton("eye.slash", action: onHide)
-          .accessibilityLabel(strings.text(.hide))
-          .help(strings.text(.hideHelp))
+          .layoutPriority(10)
       }
+      .padding(.trailing, FloatingPanelLayout.expandedHeaderSafetyInset)
+      .frame(maxWidth: .infinity, alignment: .leading)
       .frame(height: 28)
 
       HStack(spacing: 4) {
@@ -584,6 +677,62 @@ struct FloatingPanelView: View {
       .frame(height: 11)
     }
     .frame(height: FloatingPanelLayout.expandedHeaderHeight, alignment: .top)
+  }
+
+  private var headerIdentity: some View {
+    HStack(spacing: 6) {
+      freshnessDot
+      Text("Codex")
+        .font(.system(size: 14, weight: .semibold))
+        .fixedSize(horizontal: true, vertical: false)
+      if let quota = model.quota, quota.planType != nil {
+        Text(strings.compactPlanName(quota))
+          .font(.system(size: 10, weight: .bold))
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: true, vertical: false)
+      }
+      if let quota = model.quota {
+        let count = quota.resetCreditCount
+          ?? ResetCreditExpiryCarouselPolicy.availableCount(
+            in: quota.resetCredits,
+            now: Date()
+          )
+        if count > 0 {
+          ResetCreditExpiryCarouselView(
+            count: count,
+            expiresAt: ResetCreditExpiryCarouselPolicy.earliestAvailableExpiry(
+              in: quota.resetCredits,
+              now: Date()
+            ),
+            language: settings.appLanguage
+          )
+        }
+      }
+      Spacer(minLength: 0)
+    }
+  }
+
+  private var headerActions: some View {
+    HStack(spacing: FloatingPanelLayout.headerActionSpacing) {
+      if headerShowsProgress {
+        ProgressView()
+          .controlSize(.small)
+          .scaleEffect(0.65)
+          .frame(
+            width: FloatingPanelLayout.headerProgressSize,
+            height: FloatingPanelLayout.headerButtonSize
+          )
+      }
+      iconButton("arrow.clockwise", action: onRefresh, disabled: model.isRefreshingQuota)
+        .accessibilityLabel(strings.text(.refresh))
+        .help(strings.text(.menuRefresh))
+      iconButton("gearshape", action: onOpenSettings)
+        .accessibilityLabel(strings.text(.settings))
+        .help(strings.text(.settings))
+      iconButton("eye.slash", action: onHide)
+        .accessibilityLabel(strings.text(.hide))
+        .help(strings.text(.hideHelp))
+    }
   }
 
   private var freshnessDot: some View {
@@ -625,15 +774,19 @@ struct FloatingPanelView: View {
         Text(strings.windowDisplayName(window))
           .font(.system(size: 11, weight: .medium))
           .lineLimit(1)
-        TimelineView(.periodic(
-          from: .now,
-          by: CountdownRefreshPolicy.interval(to: window.resetsAt, now: Date())
-        )) { context in
-          Text(strings.format(
-            .resetCountdown,
-            strings.countdown(to: window.resetsAt, now: context.date),
-            absoluteTime(window.resetsAt)
-          ))
+        TimelineView(
+          .periodic(
+            from: .now,
+            by: CountdownRefreshPolicy.interval(to: window.resetsAt, now: Date())
+          )
+        ) { context in
+          Text(
+            strings.format(
+              .resetCountdown,
+              strings.countdown(to: window.resetsAt, now: context.date),
+              absoluteTime(window.resetsAt)
+            )
+          )
           .font(.system(size: 10).monospacedDigit())
           .foregroundStyle(.secondary)
           .lineLimit(1)
@@ -641,10 +794,12 @@ struct FloatingPanelView: View {
       }
       Spacer(minLength: 4)
       VStack(alignment: .trailing, spacing: 3) {
-        Text(strings.format(
-          .remainingQuota,
-          Int(window.remainingPercent.rounded())
-        ))
+        Text(
+          strings.format(
+            .remainingQuota,
+            Int(window.remainingPercent.rounded())
+          )
+        )
         .font(.system(size: 11, weight: .semibold).monospacedDigit())
         QuotaMeterView(
           remainingPercent: window.remainingPercent,
@@ -771,10 +926,12 @@ struct FloatingPanelView: View {
             )
             VStack(alignment: .leading, spacing: 1) {
               if let probability = forecast.availableProbability48Hours(at: context.date) {
-                Text(strings.format(
-                  .resetProbability48Hours,
-                  Int((probability * 100).rounded())
-                ))
+                Text(
+                  strings.format(
+                    .resetProbability48Hours,
+                    Int((probability * 100).rounded())
+                  )
+                )
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(resetProbabilityColor(forecast, now: context.date))
                 .lineLimit(1)
@@ -829,16 +986,18 @@ struct FloatingPanelView: View {
             Text(
               "Tibo · \(strings.activityType(assessment.type)) · \(strings.verification(assessment.verification))"
             )
-              .font(.system(size: 10, weight: .semibold))
-              .lineLimit(1)
-            Text(strings.format(
-              .expectedResetTimeLine,
-              strings.expectedResetTime(assessment)
-            ))
-              .font(.system(size: 10))
-              .foregroundStyle(.secondary)
-              .lineLimit(1)
-              .fixedSize(horizontal: false, vertical: true)
+            .font(.system(size: 10, weight: .semibold))
+            .lineLimit(1)
+            Text(
+              strings.format(
+                .expectedResetTimeLine,
+                strings.expectedResetTime(assessment)
+              )
+            )
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .fixedSize(horizontal: false, vertical: true)
             Text(strings.format(.audience, strings.audience(assessment.audience)))
               .font(.system(size: 9))
               .foregroundStyle(.secondary)
@@ -935,7 +1094,9 @@ struct FloatingPanelView: View {
   {
     Button(action: action) {
       Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).frame(
-        width: 28, height: 28)
+        width: FloatingPanelLayout.headerButtonSize,
+        height: FloatingPanelLayout.headerButtonSize
+      )
     }
     .buttonStyle(.plain)
     .disabled(disabled)
@@ -961,5 +1122,68 @@ struct FloatingPanelView: View {
       )
     }
     return "\(strings.freshness(quota.freshness)) \(strings.shortTime(quota.observedAt))"
+  }
+}
+
+private struct LiquidCapsuleRevealShape: InsettableShape {
+  var progress: CGFloat
+  let seedSize: NSSize
+  let anchoredToTrailingEdge: Bool
+  var insetAmount: CGFloat = 0
+
+  nonisolated var animatableData: CGFloat {
+    get { progress }
+    set { progress = newValue }
+  }
+
+  func path(in rect: CGRect) -> Path {
+    let revealRect = FloatingPanelLayout.liquidRevealRect(
+      in: rect,
+      progress: progress,
+      seedSize: seedSize,
+      anchoredToTrailingEdge: anchoredToTrailingEdge
+    ).insetBy(dx: insetAmount, dy: insetAmount)
+    guard revealRect.width > 0, revealRect.height > 0 else { return Path() }
+    let requestedRadius = max(
+      0,
+      FloatingPanelLayout.liquidCornerRadius(
+        progress: progress,
+        seedSize: seedSize
+      ) - insetAmount
+    )
+    let radius = min(requestedRadius, min(revealRect.width, revealRect.height) / 2)
+    return RoundedRectangle(cornerRadius: radius, style: .continuous)
+      .path(in: revealRect)
+  }
+
+  func inset(by amount: CGFloat) -> LiquidCapsuleRevealShape {
+    var copy = self
+    copy.insetAmount += amount
+    return copy
+  }
+}
+
+private struct NativeTopRevealModifier: AnimatableModifier {
+  var progress: CGFloat
+
+  nonisolated var animatableData: CGFloat {
+    get { progress }
+    set { progress = newValue }
+  }
+
+  func body(content: Content) -> some View {
+    content.mask(alignment: .top) {
+      Rectangle()
+        .scaleEffect(x: 1, y: min(1, max(0, progress)), anchor: .top)
+    }
+  }
+}
+
+extension AnyTransition {
+  fileprivate static var nativeTopReveal: AnyTransition {
+    .modifier(
+      active: NativeTopRevealModifier(progress: 0),
+      identity: NativeTopRevealModifier(progress: 1)
+    )
   }
 }

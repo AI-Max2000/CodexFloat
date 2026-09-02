@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import QuartzCore
 import SwiftUI
 
 final class FloatingPanel: NSPanel {
@@ -49,13 +48,17 @@ final class PanelUIState: ObservableObject {
     didSet { defaults.set(isCollapsed, forKey: "panelCollapsed") }
   }
 
-  /// Keeps both visual layers alive while the panel crossfades between compact and expanded.
+  /// Keeps the fixed compact entry and final-size liquid surface alive during handoff.
   @Published var isCollapsing = false
   @Published var isExpanding = false
+  @Published var expandedCanvasSize = NSSize(width: 340, height: 260)
+  @Published var revealProgress: CGFloat
+  @Published var menuBarPresentationProgress: CGFloat = 1
 
   init(defaults: UserDefaults = .standard, initiallyCollapsed: Bool) {
     self.defaults = defaults
     isCollapsed = initiallyCollapsed
+    revealProgress = initiallyCollapsed ? 0 : 1
     defaults.set(initiallyCollapsed, forKey: "panelCollapsed")
   }
 }
@@ -63,28 +66,10 @@ final class PanelUIState: ObservableObject {
 @MainActor
 final class FloatingPanelController: NSObject, NSWindowDelegate {
   @MainActor private enum Motion {
-    struct Bezier: Sendable {
-      let x1: Double
-      let y1: Double
-      let x2: Double
-      let y2: Double
-    }
-
-    // Keep hover response below a quarter second. A symmetric velocity curve
-    // avoids both a large first-frame leap and an abrupt stop at the target.
+    // Direction 14: the surface and its content share one fixed anchor and
+    // damped liquid-capsule curve, with a slightly quicker reverse roll-up.
     static let expansionDuration = FloatingPanelLayout.hoverExpansionDuration
-    static let collapseDuration: TimeInterval = 0.26
-    static let expansionTiming = Bezier(x1: 0.37, y1: 0.0, x2: 0.63, y2: 1.0)
-    static let collapseTiming = Bezier(x1: 0.40, y1: 0.0, x2: 0.20, y2: 1.0)
-  }
-
-  private struct FrameTransition {
-    let startFrame: NSRect
-    let finalFrame: NSRect
-    let duration: TimeInterval
-    let timing: Motion.Bezier
-    let generation: UInt
-    var startedAt: CFTimeInterval?
+    static let collapseDuration = LiquidCapsuleMotion.collapseDuration
   }
 
   private enum Size {
@@ -128,11 +113,10 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   private var feedbackPresentationWasCollapsed = false
   private var menuBarAnchorFrame: NSRect?
   private var collapsedRestingFrame: NSRect?
-  private var frameTransitionGeneration: UInt = 0
-  private var frameTransition: FrameTransition?
-  private var frameTransitionCompletion: (@MainActor () -> Void)?
-  private var frameDisplayLink: CADisplayLink?
-  private var frameTransitionFallbackTask: Task<Void, Never>?
+  private var surfaceTransitionGeneration: UInt = 0
+  private var surfaceTransitionCompletion: (@MainActor () -> Void)?
+  private var surfaceTransitionTask: Task<Void, Never>?
+  private var menuBarPresentationTask: Task<Void, Never>?
   private var placementSaveTask: Task<Void, Never>?
   private var minimalDragStartFrame: NSRect?
   private var minimalDragVisibleFrame: NSRect?
@@ -228,6 +212,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       width: min(Size.maximumExpanded.width, max(Size.minimumExpanded.width, panel.frame.width)),
       height: Size.expanded.height
     )
+    state.expandedCanvasSize = expandedSize
     preferredExpandedHeight = Size.expanded.height
     if state.isCollapsed {
       panel.styleMask.remove(.resizable)
@@ -259,6 +244,8 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   }
 
   func show(expanded: Bool = false) {
+    menuBarPresentationTask?.cancel()
+    menuBarPresentationTask = nil
     if model.transientFeedback != nil, model.settings.quotaDisplayMode != .menuBar {
       setCollapsed(false, animated: false)
     } else if expanded {
@@ -267,15 +254,68 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       setCollapsed(true, animated: false)
     }
     ensureVisible()
+    let shouldRevealFromMenuBar =
+      model.settings.quotaDisplayMode == .menuBar
+      && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    if shouldRevealFromMenuBar, !panel.isVisible {
+      var transaction = Transaction(animation: nil)
+      transaction.disablesAnimations = true
+      withTransaction(transaction) {
+        state.menuBarPresentationProgress = 0
+      }
+    }
     panel.orderFrontRegardless()
+    if shouldRevealFromMenuBar, state.menuBarPresentationProgress < 1 {
+      // Commit the zero-height mask once before starting the reveal; mutating
+      // both values in the same run-loop turn lets SwiftUI coalesce away the
+      // first visible frame.
+      menuBarPresentationTask = Task { @MainActor [weak self] in
+        await Task.yield()
+        guard let self, !Task.isCancelled, self.panel.isVisible else { return }
+        withAnimation(
+          LiquidCapsuleMotion.animation(expanding: true, reduceMotion: false)
+        ) {
+          self.state.menuBarPresentationProgress = 1
+        }
+        self.menuBarPresentationTask = nil
+      }
+    } else if !shouldRevealFromMenuBar {
+      state.menuBarPresentationProgress = 1
+    }
     onVisibilityChanged?(true)
     model.refreshAfterWakeOrShow()
   }
 
   func hide() {
     collapseTask?.cancel()
-    finishFrameTransitionIfNeeded()
-    panel.orderOut(nil)
+    finishSurfaceTransitionIfNeeded()
+    menuBarPresentationTask?.cancel()
+    let shouldCollapseIntoMenuBar =
+      model.settings.quotaDisplayMode == .menuBar
+      && panel.isVisible
+      && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    guard shouldCollapseIntoMenuBar else {
+      panel.orderOut(nil)
+      state.menuBarPresentationProgress = 1
+      onVisibilityChanged?(false)
+      return
+    }
+    withAnimation(
+      LiquidCapsuleMotion.animation(expanding: false, reduceMotion: false)
+    ) {
+      state.menuBarPresentationProgress = 0
+    }
+    menuBarPresentationTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .seconds(LiquidCapsuleMotion.collapseDuration))
+      guard let self, !Task.isCancelled else { return }
+      self.panel.orderOut(nil)
+      var transaction = Transaction(animation: nil)
+      transaction.disablesAnimations = true
+      withTransaction(transaction) {
+        self.state.menuBarPresentationProgress = 1
+      }
+      self.menuBarPresentationTask = nil
+    }
     onVisibilityChanged?(false)
   }
 
@@ -339,11 +379,12 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     flushPendingPlacementSave()
     let wasExpanding = state.isExpanding
     let wasCollapsing = state.isCollapsing
-    cancelFrameTransition()
-    frameTransitionGeneration &+= 1
-    let transitionGeneration = frameTransitionGeneration
+    cancelSurfaceTransition()
+    surfaceTransitionGeneration &+= 1
+    let transitionGeneration = surfaceTransitionGeneration
     let shouldAnimate = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     if shouldCollapse {
+      state.expandedCanvasSize = panel.frame.size
       if !wasExpanding { expandedSize = panel.frame.size }
       state.isExpanding = false
       state.isCollapsing = shouldAnimate
@@ -354,26 +395,26 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       }
       let finalFrame = resolvedCollapsedRestingFrame()
       if shouldAnimate {
-        animateFrameTransition(
-          to: finalFrame,
+        beginSurfaceTransition(
+          targetProgress: 0,
+          expanding: false,
           duration: Motion.collapseDuration,
-          timingFunction: Motion.collapseTiming,
           generation: transitionGeneration
         ) { [weak self] in
           guard let self else { return }
+          self.panel.setFrame(finalFrame, display: true, animate: false)
+          self.setRevealProgress(0, expanding: false, animated: false)
           self.state.isCollapsing = false
           self.collapsedRestingFrame = finalFrame
         }
       } else {
+        setRevealProgress(0, expanding: false, animated: false)
         state.isCollapsing = false
-        panel.setFrame(finalFrame, display: true)
+        panel.setFrame(finalFrame, display: true, animate: false)
         collapsedRestingFrame = finalFrame
       }
     } else {
       if !wasCollapsing { collapsedRestingFrame = panel.frame }
-      state.isCollapsing = false
-      state.isExpanding = shouldAnimate
-      state.isCollapsed = false
       panel.isMovableByWindowBackground = model.settings.quotaDisplayMode != .menuBar
       if model.settings.quotaDisplayMode == .menuBar {
         panel.styleMask.remove(.resizable)
@@ -383,25 +424,38 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       panel.minSize = Size.minimumExpanded
       panel.maxSize = Size.maximumExpanded
       expandedSize.height = preferredExpandedHeight
+      state.expandedCanvasSize = expandedSize
       let finalFrame = targetFrame(for: expandedSize)
       if shouldAnimate {
-        animateFrameTransition(
-          to: finalFrame,
+        // Direction 14 uses one final-size surface and animates only its liquid
+        // clipping boundary. This prevents the expanded hierarchy from being
+        // laid out against a different window width on every display frame.
+        panel.setFrame(finalFrame, display: true, animate: false)
+        state.isCollapsing = false
+        state.isExpanding = true
+        state.isCollapsed = false
+        beginSurfaceTransition(
+          targetProgress: 1,
+          expanding: true,
           duration: Motion.expansionDuration,
-          timingFunction: Motion.expansionTiming,
           generation: transitionGeneration
         ) { [weak self] in
-          self?.state.isExpanding = false
+          guard let self else { return }
+          self.setRevealProgress(1, expanding: true, animated: false)
+          self.state.isExpanding = false
         }
       } else {
+        state.isCollapsing = false
         state.isExpanding = false
+        state.isCollapsed = false
+        setRevealProgress(1, expanding: true, animated: false)
         panel.setFrame(finalFrame, display: true, animate: false)
       }
     }
   }
 
   var isCollapseAnimationInFlight: Bool { state.isCollapsing }
-  var isFrameTransitionInFlight: Bool { state.isCollapsing || state.isExpanding }
+  var isSurfaceTransitionInFlight: Bool { state.isCollapsing || state.isExpanding }
 
   func handleMinimalDrag(translation: CGSize, ended: Bool) {
     guard model.settings.quotaDisplayMode == .minimal,
@@ -414,9 +468,10 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       isDraggingMinimalBar = true
       suppressMinimalHoverUntilExit = true
       minimalDragStartFrame = panel.frame
-      minimalDragVisibleFrame = NSScreen.screens.first(where: {
-        $0.visibleFrame.intersects(panel.frame)
-      })?.visibleFrame ?? NSScreen.main?.visibleFrame
+      minimalDragVisibleFrame =
+        NSScreen.screens.first(where: {
+          $0.visibleFrame.intersects(panel.frame)
+        })?.visibleFrame ?? NSScreen.main?.visibleFrame
     }
     guard let startFrame = minimalDragStartFrame,
       let visibleFrame = minimalDragVisibleFrame
@@ -474,6 +529,9 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
 
   func windowDidResize(_ notification: Notification) {
     if !state.isCollapsed { expandedSize = panel.frame.size }
+    if !state.isCollapsed, !state.isExpanding, !state.isCollapsing {
+      state.expandedCanvasSize = panel.frame.size
+    }
     guard model.settings.quotaDisplayMode != .menuBar else { return }
     guard !state.isCollapsing else { return }
     guard !isDraggingMinimalBar else { return }
@@ -504,8 +562,11 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
 
   private func applyDisplayMode() {
     collapseTask?.cancel()
-    cancelFrameTransition()
-    frameTransitionGeneration &+= 1
+    menuBarPresentationTask?.cancel()
+    menuBarPresentationTask = nil
+    state.menuBarPresentationProgress = 1
+    cancelSurfaceTransition()
+    surfaceTransitionGeneration &+= 1
     flushPendingPlacementSave()
     minimalDragStartFrame = nil
     minimalDragVisibleFrame = nil
@@ -526,6 +587,11 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     state.isCollapsing = false
     state.isExpanding = false
     state.isCollapsed = shouldCollapse
+    setRevealProgress(
+      shouldCollapse ? 0 : 1,
+      expanding: !shouldCollapse,
+      animated: false
+    )
     panel.isMovableByWindowBackground =
       newMode == .standard || !shouldCollapse
     if shouldCollapse {
@@ -581,6 +647,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     preferredExpandedHeight = clampedHeight
     expandedSize.height = clampedHeight
     guard !state.isCollapsed, !state.isExpanding else { return }
+    state.expandedCanvasSize = expandedSize
     resize(to: expandedSize, animated: false)
   }
 
@@ -612,155 +679,72 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     return proposed
   }
 
-  private func animateFrameTransition(
-    to finalFrame: NSRect,
+  private func setRevealProgress(
+    _ progress: CGFloat,
+    expanding: Bool,
+    animated: Bool
+  ) {
+    guard animated else {
+      var transaction = Transaction(animation: nil)
+      transaction.disablesAnimations = true
+      withTransaction(transaction) {
+        state.revealProgress = progress
+      }
+      return
+    }
+    withAnimation(
+      LiquidCapsuleMotion.animation(expanding: expanding, reduceMotion: false)
+    ) {
+      state.revealProgress = progress
+    }
+  }
+
+  private func beginSurfaceTransition(
+    targetProgress: CGFloat,
+    expanding: Bool,
     duration: TimeInterval,
-    timingFunction: Motion.Bezier,
     generation: UInt,
     completion: @escaping @MainActor () -> Void
   ) {
-    frameTransition = FrameTransition(
-      startFrame: panel.frame,
-      finalFrame: finalFrame,
-      duration: duration,
-      timing: timingFunction,
-      generation: generation,
-      startedAt: nil
-    )
-    frameTransitionCompletion = completion
-
-    // macOS 14's display link follows the panel's current screen and refresh rate,
-    // so 60 Hz and ProMotion displays both receive one frame update per vsync.
-    let displayLink = panel.displayLink(
-      target: self,
-      selector: #selector(handleFrameTransitionTick(_:))
-    )
-    frameDisplayLink = displayLink
-    displayLink.add(to: .main, forMode: .common)
-
-    // A display link stops firing while a window is temporarily detached from
-    // every screen (for example during monitor removal). Settle at the target
-    // instead of leaving the panel permanently in a transitioning state.
-    frameTransitionFallbackTask = Task { @MainActor [weak self] in
-      try? await Task.sleep(for: .seconds(duration + 0.12))
+    surfaceTransitionCompletion = completion
+    surfaceTransitionTask = Task { @MainActor [weak self] in
+      // Commit the exact endpoint layout once before the animated mask starts.
+      // Otherwise AppKit's resize and SwiftUI's first interpolated frame can be
+      // coalesced, making the motion appear to skip its first frame.
+      await Task.yield()
       guard let self,
         !Task.isCancelled,
-        self.frameTransition?.generation == generation
+        self.surfaceTransitionGeneration == generation
       else { return }
-      self.finishFrameTransitionIfNeeded()
-    }
-  }
-
-  @objc private func handleFrameTransitionTick(_ displayLink: CADisplayLink) {
-    guard var transition = frameTransition,
-      transition.generation == frameTransitionGeneration
-    else {
-      cancelFrameTransition()
-      return
-    }
-
-    // Drive the geometry for the frame that is about to be presented instead
-    // of the callback's previous-frame timestamp. This removes a one-vsync lag
-    // that is especially noticeable on ProMotion displays.
-    let presentationTime = max(displayLink.timestamp, displayLink.targetTimestamp)
-    if transition.startedAt == nil {
-      transition.startedAt = presentationTime
-      frameTransition = transition
-    }
-    let startedAt = transition.startedAt ?? presentationTime
-    let linearProgress = min(1, max(0, (presentationTime - startedAt) / transition.duration))
-    let easedProgress = Self.cubicBezierValue(
-      progress: linearProgress,
-      timing: transition.timing
-    )
-
-    guard linearProgress < 1 else {
-      finishFrameTransitionIfNeeded()
-      return
-    }
-    applyTransitionFrame(
-      FloatingPanelLayout.interpolatedFrame(
-        from: transition.startFrame,
-        to: transition.finalFrame,
-        progress: easedProgress
+      self.setRevealProgress(targetProgress, expanding: expanding, animated: true)
+      try? await Task.sleep(
+        for: .seconds(duration + LiquidCapsuleMotion.completionSettleBuffer)
       )
-    )
-  }
-
-  private func finishFrameTransitionIfNeeded() {
-    guard let transition = frameTransition else { return }
-    applyTransitionFrame(transition.finalFrame, flushContent: true)
-    let completion = frameTransitionCompletion
-    cancelFrameTransition()
-    completion?()
-  }
-
-  private func applyTransitionFrame(_ frame: NSRect, flushContent: Bool = false) {
-    // Keep the NSWindow frame, private frame layer, hosting layer, and SwiftUI
-    // mask in one Core Animation transaction. Without this, the backing layer
-    // can resize one commit ahead of its rounded mask and expose a white seam.
-    CATransaction.begin()
-    CATransaction.setDisableActions(true)
-    panel.setFrame(frame, display: false, animate: false)
-    panel.contentView?.superview?.needsLayout = true
-    panel.contentView?.superview?.layoutSubtreeIfNeeded()
-    if flushContent {
-      // Coalesce SwiftUI layout and drawing during intermediate frames. A
-      // synchronous full-tree display on every display-link tick can miss the
-      // next vsync; only the settled frame needs an immediate complete draw.
-      panel.contentView?.needsLayout = true
-      panel.contentView?.layoutSubtreeIfNeeded()
-      panel.contentView?.needsDisplay = true
-      panel.displayIfNeeded()
+      guard !Task.isCancelled,
+        self.surfaceTransitionGeneration == generation
+      else { return }
+      self.finishSurfaceTransitionIfNeeded()
     }
-    CATransaction.commit()
   }
 
-  private func cancelFrameTransition() {
-    frameTransitionFallbackTask?.cancel()
-    frameTransitionFallbackTask = nil
-    frameDisplayLink?.invalidate()
-    frameDisplayLink = nil
-    frameTransition = nil
-    frameTransitionCompletion = nil
+  private func finishSurfaceTransitionIfNeeded() {
+    guard let completion = surfaceTransitionCompletion else { return }
+    cancelSurfaceTransition()
+    completion()
   }
 
-  private static func cubicBezierValue(progress: Double, timing: Motion.Bezier) -> Double {
-    let clampedProgress = min(1, max(0, progress))
-    var lowerBound = 0.0
-    var upperBound = 1.0
-    var parameter = clampedProgress
-
-    // Solve x(t) = progress, then return y(t). A short binary search is stable
-    // at display-link cadence and avoids velocity discontinuities near the end.
-    for _ in 0..<12 {
-      let x = cubicBezierCoordinate(parameter, first: timing.x1, second: timing.x2)
-      if x < clampedProgress {
-        lowerBound = parameter
-      } else {
-        upperBound = parameter
-      }
-      parameter = (lowerBound + upperBound) / 2
-    }
-    return cubicBezierCoordinate(parameter, first: timing.y1, second: timing.y2)
-  }
-
-  private static func cubicBezierCoordinate(
-    _ parameter: Double,
-    first: Double,
-    second: Double
-  ) -> Double {
-    let inverse = 1 - parameter
-    return 3 * inverse * inverse * parameter * first
-      + 3 * inverse * parameter * parameter * second
-      + parameter * parameter * parameter
+  private func cancelSurfaceTransition() {
+    surfaceTransitionTask?.cancel()
+    surfaceTransitionTask = nil
+    surfaceTransitionCompletion = nil
   }
 
   private func resolvedCollapsedRestingFrame() -> NSRect {
     let rememberedFrame = collapsedRestingFrame ?? targetFrame(for: collapsedSize)
-    let visibleFrame = NSScreen.screens.first(where: {
-      $0.visibleFrame.intersects(rememberedFrame)
-    })?.visibleFrame ?? NSScreen.main?.visibleFrame
+    let visibleFrame =
+      NSScreen.screens.first(where: {
+        $0.visibleFrame.intersects(rememberedFrame)
+      })?.visibleFrame ?? NSScreen.main?.visibleFrame
     guard let visibleFrame else { return rememberedFrame }
     let resizedFrame = FloatingPanelLayout.anchoredResizeFrame(
       currentFrame: rememberedFrame,
@@ -781,10 +765,11 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       !isAligningStandardCollapsedFrame
     else { return }
     let currentFrame = panel.frame
-    let screen = NSScreen.screens.max { lhs, rhs in
-      lhs.visibleFrame.intersection(currentFrame).area
-        < rhs.visibleFrame.intersection(currentFrame).area
-    } ?? NSScreen.main
+    let screen =
+      NSScreen.screens.max { lhs, rhs in
+        lhs.visibleFrame.intersection(currentFrame).area
+          < rhs.visibleFrame.intersection(currentFrame).area
+      } ?? NSScreen.main
     guard let visibleFrame = screen?.visibleFrame else { return }
     let alignedFrame = FloatingPanelLayout.standardCollapsedAnchorFrame(
       currentFrame: currentFrame,
@@ -799,10 +784,11 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
 
   private func synchronizeCollapsedAnchorWithCurrentPanel() {
     let currentFrame = panel.frame
-    let screen = NSScreen.screens.max { lhs, rhs in
-      lhs.visibleFrame.intersection(currentFrame).area
-        < rhs.visibleFrame.intersection(currentFrame).area
-    } ?? NSScreen.main
+    let screen =
+      NSScreen.screens.max { lhs, rhs in
+        lhs.visibleFrame.intersection(currentFrame).area
+          < rhs.visibleFrame.intersection(currentFrame).area
+      } ?? NSScreen.main
     guard let visibleFrame = screen?.visibleFrame else {
       collapsedRestingFrame = currentFrame
       return
@@ -862,6 +848,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       width: min(Size.maximumExpanded.width, max(Size.minimumExpanded.width, panel.frame.width)),
       height: preferredExpandedHeight
     )
+    state.expandedCanvasSize = expandedSize
   }
 
   private func repositionBelowMenuBarAnchor() {

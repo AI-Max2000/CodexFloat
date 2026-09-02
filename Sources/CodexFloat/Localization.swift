@@ -36,7 +36,7 @@ enum LocalizedTextKey: String, CaseIterable {
   case tiboSection, tiboPolling, tiboHelp, resetProbabilityToggle, resetProbabilityHelp
   case privacySection, privacyHelp, exportDiagnostics
   case refresh, settings, hide, hideHelp
-  case remainingCompact, resetCountCompact, resetCountHeader
+  case remainingCompact, resetCountCompact, resetCountHeader, resetExpiryCompact
   case readingQuota, quotaUnavailable, quotaRefreshFailed, connectingCodex
   case updatedJustNow, dataOutOfDate, offlineData, notReadYet
   case refreshingPreviousQuota, refreshFailedShowingPrevious, offlineShowingPrevious
@@ -503,6 +503,7 @@ struct AppStrings: Sendable {
     .remainingCompact: ("余%d%%", "餘%d%%", "%d%% left"),
     .resetCountCompact: ("%d次重置", "%d次重置", "%d reset"),
     .resetCountHeader: ("%d 次额外重置", "%d 次額外重置", "%d extra reset"),
+    .resetExpiryCompact: ("最早到期：%@", "最早到期：%@", "Expires in %@"),
     .readingQuota: ("正在读取额度…", "正在讀取額度…", "Reading quota…"),
     .quotaUnavailable: ("额度暂不可用", "額度暫時無法使用", "Quota unavailable"),
     .quotaRefreshFailed: ("额度刷新失败：%@", "額度更新失敗：%@", "Quota refresh failed: %@"),

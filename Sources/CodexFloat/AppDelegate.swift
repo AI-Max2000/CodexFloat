@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var quotaWindow: NSWindowController?
   private var statusItem: NSStatusItem?
   private var statusItemHoverMonitor: MenuBarStatusItemHoverMonitor?
+  private var statusItemAppearanceObservation: NSKeyValueObservation?
   private var statusMenu: NSMenu?
   private var globalHotKey: GlobalHotKey?
   private var statusCountdownTimer: Timer?
@@ -101,6 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     menuBarHoverHideTask?.cancel()
     feedbackPopover?.close()
     statusItemHoverMonitor = nil
+    statusItemAppearanceObservation = nil
     modelSubscriptions.removeAll()
     globalHotKey?.invalidate()
     model?.stop()
@@ -312,15 +314,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       }
       hoverMonitor.install(on: button)
       statusItemHoverMonitor = hoverMonitor
+      statusItemAppearanceObservation = button.observe(\.effectiveAppearance, options: [.new]) {
+        [weak self] _, _ in
+        Task { @MainActor [weak self] in self?.updateStatusItem() }
+      }
     }
     let menu = NSMenu()
     menu.addItem(menuItem(togglePanelMenuTitle, action: #selector(togglePanel), key: ""))
     menu.addItem(menuItem(strings.text(.menuRefresh), action: #selector(refresh), key: "r"))
-    menu.addItem(menuItem(strings.text(.menuQuotaDetails), action: #selector(showQuotaDetails), key: "u"))
-    menu.addItem(menuItem(strings.text(.menuActivityHistory), action: #selector(showActivityHistory), key: "t"))
+    menu.addItem(
+      menuItem(strings.text(.menuQuotaDetails), action: #selector(showQuotaDetails), key: "u"))
+    menu.addItem(
+      menuItem(strings.text(.menuActivityHistory), action: #selector(showActivityHistory), key: "t")
+    )
     menu.addItem(.separator())
     menu.addItem(menuItem(strings.text(.menuSettings), action: #selector(showSettings), key: ","))
-    menu.addItem(menuItem(strings.text(.exportDiagnostics), action: #selector(exportDiagnostics), key: ""))
+    menu.addItem(
+      menuItem(strings.text(.exportDiagnostics), action: #selector(exportDiagnostics), key: ""))
     menu.addItem(.separator())
     menu.addItem(menuItem(strings.text(.menuQuit), action: #selector(quit), key: "q"))
     statusMenu = menu
@@ -358,7 +368,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         now: Date()
       ),
       lowThreshold: settings.lowThreshold,
-      criticalThreshold: settings.criticalThreshold
+      criticalThreshold: settings.criticalThreshold,
+      appearance: button.effectiveAppearance,
+      isHighlighted: pointerInsideStatusItem || menuBarDetailVisible
     )
     // A slightly wider native item keeps the number, the smaller percent sign,
     // and the countdown legible without sacrificing its compact menu-bar shape.
@@ -382,6 +394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NSStatusBar.system.removeStatusItem(statusItem)
     self.statusItem = nil
     statusItemHoverMonitor = nil
+    statusItemAppearanceObservation = nil
     statusMenu = nil
   }
 
@@ -421,19 +434,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let wantsPanelVisible =
       settings.quotaDisplayMode == .menuBar ? menuBarDetailVisible : userWantsPanelVisible
     let isAppFrontmost = frontmostBundleIdentifier == Bundle.main.bundleIdentifier
-    let shouldShow = isAppFrontmost && wantsPanelVisible
+    let shouldShow =
+      isAppFrontmost && wantsPanelVisible
       || ForegroundVisibilityPolicy.shouldShow(
-      displayMode: settings.quotaDisplayMode,
-      userWantsVisible: wantsPanelVisible,
-      onlyWhenChatGPTIsFrontmost: settings.showOnlyWhenChatGPTIsFrontmost,
-      frontmostBundleIdentifier: frontmostBundleIdentifier
-    )
+        displayMode: settings.quotaDisplayMode,
+        userWantsVisible: wantsPanelVisible,
+        onlyWhenChatGPTIsFrontmost: settings.showOnlyWhenChatGPTIsFrontmost,
+        frontmostBundleIdentifier: frontmostBundleIdentifier
+      )
     if shouldShow {
       if settings.quotaDisplayMode == .menuBar {
         updateMenuBarPanelAnchor()
-      }
-      if !panelController.panel.isVisible {
-        panelController.show(expanded: settings.quotaDisplayMode == .menuBar)
+        // Re-entering while the native-reveal collapse is still in flight
+        // retargets that same surface instead of letting it disappear first.
+        panelController.show(expanded: true)
+      } else if !panelController.panel.isVisible {
+        panelController.show(expanded: false)
       }
     } else if panelController.panel.isVisible {
       panelController.hide()
@@ -456,7 +472,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       }
       settings.setGlobalHotKeyRegistrationError(nil)
     } catch {
-      let detail = (error as? GlobalHotKeyError)?.message(language: settings.appLanguage)
+      let detail =
+        (error as? GlobalHotKeyError)?.message(language: settings.appLanguage)
         ?? error.localizedDescription
       settings.setGlobalHotKeyRegistrationError(
         strings.format(.globalHotKeyUnavailable, detail)
@@ -547,8 +564,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         language: model.settings.appLanguage,
         isPopover: true
       )
-        .padding(8)
-        .frame(width: 350)
+      .padding(8)
+      .frame(width: 350)
     )
     feedbackPopover = popover
     popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
@@ -582,9 +599,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private var previewFeedbackArgument: AppFeedbackKind? {
-    guard let value = CommandLine.arguments.first(where: {
-      $0.hasPrefix("--preview-feedback=")
-    })?.split(separator: "=", maxSplits: 1).last else { return nil }
+    guard
+      let value = CommandLine.arguments.first(where: {
+        $0.hasPrefix("--preview-feedback=")
+      })?.split(separator: "=", maxSplits: 1).last
+    else { return nil }
     switch value {
     case "tibo": return .tiboReset
     case "low": return .quotaLow

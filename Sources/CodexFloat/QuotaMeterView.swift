@@ -14,14 +14,14 @@ struct QuotaMeterView: View {
   var body: some View {
     ZStack(alignment: .leading) {
       Capsule()
-        .fill(Color.gray.opacity(0.28))
+        .fill(Color(nsColor: .tertiaryLabelColor).opacity(0.24))
       Capsule()
         .fill(fillColor)
         .frame(width: width * clampedRemaining / 100)
     }
     .overlay {
       Capsule()
-        .strokeBorder(Color.primary.opacity(0.16), lineWidth: 0.5)
+        .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
     }
     .frame(width: width, height: 7)
     .animation(.easeInOut(duration: 0.55), value: clampedRemaining)
@@ -87,7 +87,7 @@ struct MinimalQuotaMeterView: View {
   var body: some View {
     ZStack(alignment: .bottom) {
       Capsule()
-        .fill(Color.gray.opacity(0.30))
+        .fill(Color(nsColor: .tertiaryLabelColor).opacity(0.26))
       if let clampedRemaining, clampedRemaining > 0 {
         Capsule()
           .fill(fillColor)
@@ -99,7 +99,6 @@ struct MinimalQuotaMeterView: View {
         .strokeBorder(borderColor, lineWidth: 0.7)
     }
     .frame(width: 6, height: meterHeight)
-    .shadow(color: fillColor.opacity(0.22), radius: 2, y: 1)
     .animation(.easeInOut(duration: 0.55), value: clampedRemaining)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(accessibilityTitle)
@@ -208,7 +207,8 @@ enum QuotaMeterPalette {
 
     let criticalTransitionEnd = min(lowPoint, criticalPoint + transitionWidth)
     if remaining < criticalTransitionEnd {
-      let progress = (remaining - criticalPoint)
+      let progress =
+        (remaining - criticalPoint)
         / max(0.001, criticalTransitionEnd - criticalPoint)
       return .mixed(from: critical, to: low, progress: progress)
     }
