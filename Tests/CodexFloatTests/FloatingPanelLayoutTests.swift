@@ -334,7 +334,8 @@ struct FloatingPanelLayoutTests {
     let controller = FloatingPanelController(
       model: model,
       placement: PanelPlacementStore(defaults: defaults),
-      panelStateDefaults: defaults
+      panelStateDefaults: defaults,
+      reduceMotionProvider: { false }
     )
     controller.panel.orderFrontRegardless()
     defer { controller.panel.orderOut(nil) }
@@ -405,7 +406,8 @@ struct FloatingPanelLayoutTests {
     let controller = FloatingPanelController(
       model: model,
       placement: PanelPlacementStore(defaults: defaults),
-      panelStateDefaults: defaults
+      panelStateDefaults: defaults,
+      reduceMotionProvider: { false }
     )
 
     controller.show(expanded: true)
@@ -419,9 +421,13 @@ struct FloatingPanelLayoutTests {
     #expect(controller.panel.isVisible)
 
     controller.hide()
-    try await Task.sleep(
-      for: .seconds(LiquidCapsuleMotion.collapseDuration + 0.08)
-    )
+    let hideClock = ContinuousClock()
+    let hideStartedAt = hideClock.now
+    while controller.panel.isVisible,
+      hideStartedAt.duration(to: hideClock.now) < .seconds(1)
+    {
+      try await Task.sleep(for: .milliseconds(10))
+    }
     #expect(!controller.panel.isVisible)
   }
 
@@ -893,7 +899,8 @@ struct FloatingPanelLayoutTests {
     let controller = FloatingPanelController(
       model: model,
       placement: PanelPlacementStore(defaults: defaults),
-      panelStateDefaults: defaults
+      panelStateDefaults: defaults,
+      reduceMotionProvider: { false }
     )
     let visibleFrame = try #require(NSScreen.main?.visibleFrame)
     let restingFrame = NSRect(

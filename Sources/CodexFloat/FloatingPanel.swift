@@ -102,6 +102,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   private let model: AppModel
   private let state: PanelUIState
   private let placement: PanelPlacementStore
+  private let reduceMotionProvider: () -> Bool
   private var activePlacementMode: QuotaDisplayMode
   private var expandedSize = Size.expanded
   private var preferredExpandedHeight = Size.expanded.height
@@ -140,10 +141,14 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   init(
     model: AppModel,
     placement: PanelPlacementStore = PanelPlacementStore(),
-    panelStateDefaults: UserDefaults = .standard
+    panelStateDefaults: UserDefaults = .standard,
+    reduceMotionProvider: @escaping () -> Bool = {
+      NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
   ) {
     self.model = model
     self.placement = placement
+    self.reduceMotionProvider = reduceMotionProvider
     activePlacementMode = model.settings.quotaDisplayMode
     state = PanelUIState(
       defaults: panelStateDefaults,
@@ -256,7 +261,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     ensureVisible()
     let shouldRevealFromMenuBar =
       model.settings.quotaDisplayMode == .menuBar
-      && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+      && !reduceMotionProvider()
     if shouldRevealFromMenuBar, !panel.isVisible {
       var transaction = Transaction(animation: nil)
       transaction.disablesAnimations = true
@@ -293,7 +298,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     let shouldCollapseIntoMenuBar =
       model.settings.quotaDisplayMode == .menuBar
       && panel.isVisible
-      && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+      && !reduceMotionProvider()
     guard shouldCollapseIntoMenuBar else {
       panel.orderOut(nil)
       state.menuBarPresentationProgress = 1
@@ -382,7 +387,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     cancelSurfaceTransition()
     surfaceTransitionGeneration &+= 1
     let transitionGeneration = surfaceTransitionGeneration
-    let shouldAnimate = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    let shouldAnimate = animated && !reduceMotionProvider()
     if shouldCollapse {
       state.expandedCanvasSize = panel.frame.size
       if !wasExpanding { expandedSize = panel.frame.size }
