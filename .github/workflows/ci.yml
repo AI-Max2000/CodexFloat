@@ -50,7 +50,7 @@ jobs:
           architectures="$(lipo -archs dist/CodexFloat.app/Contents/MacOS/CodexFloat)"
           [[ " ${architectures} " == *" arm64 "* ]]
           [[ " ${architectures} " == *" x86_64 "* ]]
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: CodexFloat-unsigned-${{ github.sha }}
           path: dist/CodexFloat.app
