@@ -25,21 +25,23 @@ Codex Float 是一个 macOS 14+ 原生浮窗助手。它默认只在 ChatGPT/Cod
 
 </details>
 
-## 界面预览
+## 功能图解
+
+以下介绍图统一采用「浅色原生图解」风格，**均为功能示意，不是真实账号截图**。查看 [完整图库与原始界面资料](docs/visual-style/gallery.md)，或复用 [GitHub 日常发布视觉规范](docs/visual-style/README.md)。
 
 <p align="center">
-  <img src="docs/Images/codex-float-expanded.png" width="640" alt="Codex Float 悬停展开后的完整浮层，显示额度、任务、重置概率和 Tibo 重置消息">
+  <img src="docs/Images/github-style-v1/01-expanded.png" width="760" alt="功能示意：悬停展开，集中查看额度、任务状态与重置消息；概率仅供参考">
 </p>
 
 <p align="center"><sub>悬停展开的完整浮层：额度、最近任务、未来 48 小时重置概率与 Tibo 重置公告集中展示。</sub></p>
 
 | 完整额度 | 极简进度条 | 菜单栏额度 |
 |:---:|:---:|:---:|
-| <img src="docs/Images/codex-float-compact.png" width="300" alt="Codex Float 完整额度条"> | <img src="docs/Images/codex-float-minimal.png" width="300" alt="Codex Float 极简竖向进度条"> | <img src="docs/Images/codex-float-menu-bar.png" width="300" alt="Codex Float 原生 macOS 菜单栏额度"> |
-| 显示剩余百分比、刷新倒计时与额外 Reset | 只保留颜色和长度可感知的额度进度 | 真正的系统状态栏项目，悬停展开完整内容 |
+| [![完整额度功能示意](docs/Images/github-style-v1/02-compact.png)](docs/Images/github-style-v1/02-compact.png) | [![极简形态功能示意](docs/Images/github-style-v1/03-minimal.png)](docs/Images/github-style-v1/03-minimal.png) | [![菜单栏额度功能示意](docs/Images/github-style-v1/04-menu-bar.png)](docs/Images/github-style-v1/04-menu-bar.png) |
+| 剩余百分比、刷新倒计时与额外重置 | 竖条、横条、圆环任选，尺寸可调 | 原生系统状态项，悬停查看完整内容 |
 
 <p align="center">
-  <img src="docs/Images/codex-float-display-settings.png" width="760" alt="Codex Float 设置中的三种显示形态切换">
+  <img src="docs/Images/github-style-v1/05-settings.png" width="760" alt="功能示意：设置中切换三种显示形态，支持悬停展开、快捷键和界面语言">
 </p>
 
 <p align="center"><sub>三种形态可随时在设置中切换，并分别记住用户调整后的位置。</sub></p>
@@ -47,9 +49,9 @@ Codex Float 是一个 macOS 14+ 原生浮窗助手。它默认只在 ChatGPT/Cod
 <details>
 <summary>按账号实际窗口显示 5 小时与每周额度</summary>
 
-<img src="docs/Images/codex-float-quota-windows.png" width="640" alt="按实际窗口显示双额度：完整胶囊双读数、极简双条、菜单栏双读数，以及展开后的两行额度">
+<img src="docs/Images/github-style-v1/06-quota-windows.png" width="760" alt="功能示意：5 小时与每周额度分别展示剩余比例，仅在账号实际返回两个窗口时显示">
 
-以上为原生视图使用 Free 套餐与双窗口测试样本的渲染，不代表所有免费账号都有这些额度。检测到 5 小时与周额度时，可在「设置 → 额度显示」开启双额度，不限制套餐；只有 5 小时额度时，直接显示唯一窗口。
+以上为生成的功能示意，不代表所有账号都有这些额度。检测到 5 小时与周额度时，可在「设置 → 额度显示」开启双额度，不限制套餐；只有 5 小时额度时，直接显示唯一窗口。[查看原生固定测试样本](docs/Images/codex-float-quota-windows.png)。
 
 </details>
 

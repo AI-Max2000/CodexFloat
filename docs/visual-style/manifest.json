@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "createdOn": "2026-09-03",
+  "style": "Quiet Native / 浅色原生图解",
+  "styleAnchor": "docs/Images/codex-float-0.2.0-feature.png",
+  "generator": "built-in ImageGen",
+  "purpose": "Illustrative GitHub feature documentation, not real account screenshots",
+  "softwareReleaseUnchanged": "preview-0.2.0",
+  "qa": {
+    "reviewed": [
+      "Chinese copy",
+      "feature semantics",
+      "no clipping",
+      "example disclosures",
+      "native source preserved"
+    ],
+    "limitations": [
+      "Generated progress shapes are illustrative, not pixel-exact quantitative charts.",
+      "Images do not establish live application behavior or test completion."
+    ]
+  },
+  "assets": [
+    {
+      "path": "docs/Images/github-style-v1/01-expanded.png",
+      "releaseAsset": "codex-float-01-expanded-style-v1.png",
+      "title": "悬停展开，信息尽在眼前",
+      "width": 1536,
+      "height": 1024,
+      "sha256": "87e2c761bb8812206619db5200fd1c72e04219540451d0990b81874e59d55189",
+      "originalReference": "docs/Images/codex-float-expanded.png"
+    },
+    {
+      "path": "docs/Images/github-style-v1/02-compact.png",
+      "releaseAsset": "codex-float-02-compact-style-v1.png",
+      "title": "完整额度，一眼掌握",
+      "width": 1536,
+      "height": 1024,
+      "sha256": "f21f5b958b5deabea04c3955f4065b883d26c953db76a64f30dccc1a8244735a",
+      "originalReference": "docs/Images/codex-float-compact.png"
+    },
+    {
+      "path": "docs/Images/github-style-v1/03-minimal.png",
+      "releaseAsset": "codex-float-03-minimal-style-v1.png",
+      "title": "极简形态，少一点打扰",
+      "width": 1536,
+      "height": 1024,
+      "sha256": "63672f2fd0e767d1224d6881c31b1e0af8ed4c607aa24a37244a51d6e0d21a15",
+      "originalReference": "docs/Images/codex-float-minimal.png"
+    },
+    {
+      "path": "docs/Images/github-style-v1/04-menu-bar.png",
+      "releaseAsset": "codex-float-04-menu-bar-style-v1.png",
+      "title": "菜单栏额度，抬眼就看到",
+      "width": 1536,
+      "height": 1024,
+      "sha256": "f9e3135364329533272a3d8117e3334ac2dfd2d23fc766b33f5e6e525bb59ff2",
+      "originalReference": "docs/Images/codex-float-menu-bar.png"
+    },
+    {
+      "path": "docs/Images/github-style-v1/05-settings.png",
+      "releaseAsset": "codex-float-05-settings-style-v1.png",
+      "title": "三种显示形态，随时切换",
+      "width": 1536,
+      "height": 1024,
+      "sha256": "8181e262fa45ba53a5db7fb234576f8e84c917739a775a1676e1871ba084abf8",
+      "originalReference": "docs/Images/codex-float-display-settings.png"
+    },
+    {
+      "path": "docs/Images/github-style-v1/06-quota-windows.png",
+      "releaseAsset": "codex-float-06-quota-windows-style-v1.png",
+      "title": "双额度分开看，不再混淆",
+      "width": 1536,
+      "height": 1024,
+      "sha256": "2931f1a467ea3c72ad735f135bcc10bde973b3b9fa3b78a6425006dff24e5521",
+      "originalReference": "docs/Images/codex-float-quota-windows.png"
+    }
+  ]
+}

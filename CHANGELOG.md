@@ -6,6 +6,14 @@ All notable changes to Codex Float will be documented in this file.
 
 暂无新的未发布变更。
 
+## 2026-09-03 — 介绍图与发布视觉规范
+
+本次为文档与图片更新，**不改变 `preview-0.2.0` 的代码标签、安装包或原有校验值**。
+
+- 沿用 0.2.0 用户确认的浅色风格，重新制作展开浮层、完整额度、极简形态、菜单栏、显示设置和双额度六张功能图。
+- README 与 Release 更新图文入口；生成示意与原始界面资料分开保留，不把示例额度、任务和预测当成真实账号信息。
+- 新增可复用的 [GitHub 日常发布视觉规范](docs/visual-style/README.md)、提示词模板、完整图库、生成记录及素材校验清单。
+
 ## 0.2.0 — 2026-09-03
 
 发布标签：`preview-0.2.0`。本次新增可下载的 Universal 2 DMG / ZIP，**仅 ad-hoc 签名，未通过 Apple 公证**。完整图文说明见 [0.2.0 更新说明](docs/releases/0.2.0.md)。
