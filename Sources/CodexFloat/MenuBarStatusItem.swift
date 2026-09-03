@@ -155,7 +155,7 @@ enum MenuBarQuotaIndicator {
       weight: .semibold
     )
     let digits = NSAttributedString(
-      string: String(value),
+      string: remainingPercent > 0 && remainingPercent < 1 ? "<1" : String(value),
       attributes: textAttributes(
         font: digitFont,
         color: color,

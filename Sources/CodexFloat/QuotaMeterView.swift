@@ -44,11 +44,11 @@ struct QuotaMeterView: View {
   }
 
   private var accessibilityValue: String {
-    let value = Int(clampedRemaining.rounded())
+    let value = QuotaPercentage.text(clampedRemaining)
     return switch language {
-    case .simplifiedChinese: "剩余 \(value)%，总量 100%"
-    case .traditionalChinese: "剩餘 \(value)%，總量 100%"
-    case .english: "\(value)% remaining out of 100%"
+    case .simplifiedChinese: "剩余 \(value)，总量 100%"
+    case .traditionalChinese: "剩餘 \(value)，總量 100%"
+    case .english: "\(value) remaining out of 100%"
     }
   }
 
@@ -83,6 +83,7 @@ struct MinimalQuotaMeterView: View {
   var meterHeight: CGFloat = 38
   var meterWidth: CGFloat = 6
   var accessibilityName: String?
+  var recoveryEmphasis: MinimalRecoveryEmphasis?
   private var clampedRemaining: Double? {
     remainingPercent.map { min(100, max(0, $0)) }
   }
@@ -99,10 +100,11 @@ struct MinimalQuotaMeterView: View {
     }
     .overlay {
       Capsule()
-        .strokeBorder(borderColor, lineWidth: 0.7)
+        .strokeBorder(borderColor, lineWidth: recoveryEmphasis == nil ? 0.7 : 1)
     }
     .frame(width: meterWidth, height: meterHeight)
     .animation(reduceMotion ? nil : .easeInOut(duration: 0.55), value: clampedRemaining)
+    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: recoveryEmphasis)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(accessibilityTitle)
     .accessibilityValue(accessibilityValue)
@@ -119,10 +121,11 @@ struct MinimalQuotaMeterView: View {
   }
 
   private var borderColor: Color {
+    if let recoveryEmphasis { return recoveryEmphasis.color.opacity(0.85) }
     switch freshness {
-    case .stale: .orange.opacity(0.65)
-    case .offline: .red.opacity(0.70)
-    case .fresh, nil: .primary.opacity(0.18)
+    case .stale: return .orange.opacity(0.65)
+    case .offline: return .red.opacity(0.70)
+    case .fresh, nil: return .primary.opacity(0.18)
     }
   }
 
@@ -145,11 +148,11 @@ struct MinimalQuotaMeterView: View {
       case .english: "Quota unavailable"
       }
     }
-    let value = Int(clampedRemaining.rounded())
+    let value = QuotaPercentage.text(clampedRemaining)
     return switch language {
-    case .simplifiedChinese: "剩余 \(value)%"
-    case .traditionalChinese: "剩餘 \(value)%"
-    case .english: "\(value)% remaining"
+    case .simplifiedChinese: "剩余 \(value)"
+    case .traditionalChinese: "剩餘 \(value)"
+    case .english: "\(value) remaining"
     }
   }
 

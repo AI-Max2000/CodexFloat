@@ -7,6 +7,17 @@ struct TrackedCodexWindow: Equatable {
   let id: CGWindowID
   let processID: pid_t
   let frame: NSRect
+  let codexLabelFrame: NSRect?
+
+  init(
+    id: CGWindowID, processID: pid_t, frame: NSRect,
+    codexLabelFrame: NSRect? = nil
+  ) {
+    self.id = id
+    self.processID = processID
+    self.frame = frame
+    self.codexLabelFrame = codexLabelFrame
+  }
 }
 
 enum CodexWindowGeometry {
@@ -33,6 +44,19 @@ enum CodexWindowGeometry {
     return TrackedCodexWindow(
       id: id, processID: processID,
       frame: appKitFrame(fromQuartz: frame, primaryScreenTop: primaryScreenTop))
+  }
+}
+
+enum CodexWindowSelection {
+  static func choose(
+    from windows: [TrackedCodexWindow], preferred: TrackedCodexWindow?,
+    mousePoint: NSPoint?
+  ) -> TrackedCodexWindow? {
+    windows.first(where: {
+      $0.id == preferred?.id && $0.processID == preferred?.processID
+    })
+      ?? mousePoint.flatMap { point in windows.first(where: { $0.frame.contains(point) }) }
+      ?? windows.first
   }
 }
 
@@ -65,11 +89,13 @@ final class CodexWindowTracker {
   private var pendingDiscovery = false
 
   convenience init(
-    window: NSWindow, onMovementChanged: @escaping (Bool) -> Void = { _ in },
+    window: NSWindow,
+    shouldTrackCodexLabel: @escaping @MainActor () -> Bool = { false },
+    onMovementChanged: @escaping (Bool) -> Void = { _ in },
     onChange: @escaping (TrackedCodexWindow?) -> Void
   ) {
     self.init(
-      source: SystemCodexWindowGeometrySource(),
+      source: SystemCodexWindowGeometrySource(shouldTrackCodexLabel: shouldTrackCodexLabel),
       scheduler: DisplayLinkedWindowFollowScheduler(window: window),
       onMovementChanged: onMovementChanged, onChange: onChange)
   }
@@ -204,10 +230,12 @@ final class CodexWindowTracker {
   private func calibrate() {
     let time = now()
     if pendingDiscovery || time >= nextDiscovery {
-      let forceDelivery = pendingDiscovery
+      let selectFrontWindow = pendingDiscovery
+      let forceDelivery = selectFrontWindow
       pendingDiscovery = false
       nextDiscovery = time + 1
-      let candidate = source.discover(preferred: source.isCodexFrontmost ? nil : target)
+      let preferred = selectFrontWindow && source.isCodexFrontmost ? nil : target
+      let candidate = source.discover(preferred: preferred)
       lastSampleTime = now()
       deliver(candidate, force: forceDelivery)
     } else {
@@ -292,6 +320,12 @@ final class CodexWindowTracker {
 
 @MainActor
 final class SystemCodexWindowGeometrySource: CodexWindowGeometrySource {
+  private let shouldTrackCodexLabel: @MainActor () -> Bool
+
+  init(shouldTrackCodexLabel: @escaping @MainActor () -> Bool = { false }) {
+    self.shouldTrackCodexLabel = shouldTrackCodexLabel
+  }
+
   var isCodexFrontmost: Bool {
     NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.openai.codex"
   }
@@ -309,6 +343,12 @@ final class SystemCodexWindowGeometrySource: CodexWindowGeometrySource {
       CodexWindowGeometry.window(
         from: $0, processID: window.processID,
         primaryScreenTop: NSScreen.screens.first?.frame.maxY ?? 0)
+    }.map { sample in
+      let deltaX = sample.frame.minX - window.frame.minX
+      let deltaY = sample.frame.maxY - window.frame.maxY
+      return TrackedCodexWindow(
+        id: sample.id, processID: sample.processID, frame: sample.frame,
+        codexLabelFrame: window.codexLabelFrame?.offsetBy(dx: deltaX, dy: deltaY))
     }
   }
 
@@ -325,7 +365,16 @@ final class SystemCodexWindowGeometrySource: CodexWindowGeometrySource {
         from: $0, processID: app.processIdentifier,
         primaryScreenTop: NSScreen.screens.first?.frame.maxY ?? 0)
     }
-    return windows.first(where: { $0.id == preferred?.id && $0.processID == preferred?.processID })
-      ?? windows.first
+    let mousePoint = preferred == nil && isMouseButtonDown ? NSEvent.mouseLocation : nil
+    guard
+      let selected = CodexWindowSelection.choose(
+        from: windows, preferred: preferred, mousePoint: mousePoint)
+    else { return nil }
+    guard shouldTrackCodexLabel() else { return selected }
+    return TrackedCodexWindow(
+      id: selected.id, processID: selected.processID, frame: selected.frame,
+      codexLabelFrame: CodexInitialPanelPlacement.codexLabelFrame(
+        processIdentifier: selected.processID,
+        expectedWindowFrame: selected.frame))
   }
 }

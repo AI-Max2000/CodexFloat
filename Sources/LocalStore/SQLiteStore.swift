@@ -236,11 +236,17 @@ public actor SQLiteStore {
     try executePrepared(boundedDelete)
   }
 
+  public func releaseNotification(key: String) throws {
+    try executePrepared(
+      "DELETE FROM notification_keys WHERE notification_key = ?;", bindings: [.text(key)])
+  }
+
   public func notificationKeyCount() throws -> Int {
     guard let database else { throw StoreError.execute("数据库未打开") }
     var statement: OpaquePointer?
-    guard sqlite3_prepare_v2(database, "SELECT COUNT(*) FROM notification_keys;", -1, &statement, nil)
-      == SQLITE_OK
+    guard
+      sqlite3_prepare_v2(database, "SELECT COUNT(*) FROM notification_keys;", -1, &statement, nil)
+        == SQLITE_OK
     else { throw StoreError.execute(String(cString: sqlite3_errmsg(database))) }
     defer { sqlite3_finalize(statement) }
     guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }

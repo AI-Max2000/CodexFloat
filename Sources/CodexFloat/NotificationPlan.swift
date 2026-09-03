@@ -13,9 +13,20 @@ struct NotificationPlan: Equatable, Sendable {
   let title: String
   let body: String
   let delivery: NotificationDelivery
+  var opensUsageSettings = false
 }
 
 enum NotificationPlanner {
+  static func exhausted(
+    state: QuotaRecoveryState, episodeID: String, strings: AppStrings
+  ) -> NotificationPlan? {
+    guard state.canOpenManualReset else { return nil }
+    return NotificationPlan(
+      key: "quota-exhausted-\(episodeID)", title: "Codex · \(state.title(strings))",
+      body: state.message(strings) + " " + strings.text(.manualResetNavigationHelp),
+      delivery: .immediate, opensUsageSettings: true)
+  }
+
   static func fiveHourQuota(
     window: RateLimitWindow,
     previousWindow: RateLimitWindow?,
@@ -37,7 +48,7 @@ enum NotificationPlanner {
       .notifyQuotaResetBody,
       strings.windowDisplayName(window),
       strings.fullDateTime(reminder.resetsAt),
-      Int(window.remainingPercent.rounded())
+      QuotaPercentage.text(window.remainingPercent)
     )
     return NotificationPlan(
       key: "\(prefix)\(reminder.cycleKey)",
@@ -69,7 +80,7 @@ enum NotificationPlanner {
         .notifyQuotaResetBody,
         strings.windowDisplayName(current),
         current.resetsAt.map { strings.fullDateTime($0) } ?? strings.text(.timeUnknown),
-        Int(current.remainingPercent.rounded())
+        QuotaPercentage.text(current.remainingPercent)
       ),
       delivery: .immediate
     )
@@ -95,7 +106,7 @@ enum NotificationPlanner {
     observedAt: Date,
     strings: AppStrings
   ) -> NotificationPlan? {
-    guard let expiry = credit.expiresAt else { return nil }
+    guard credit.status == "available", let expiry = credit.expiresAt else { return nil }
     let remaining = expiry.timeIntervalSince(observedAt)
     guard remaining > 0, remaining <= 48 * 3_600 else { return nil }
     return NotificationPlan(

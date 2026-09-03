@@ -162,6 +162,7 @@ struct SettingsView: View {
         Toggle(strings.text(.expiringResetCreditAlert), isOn: $settings.notifyExpiringCredits)
         Toggle(strings.text(.tiboResetAlert), isOn: $settings.notifyTibo)
         Toggle(strings.text(.fiveHourAlert), isOn: $settings.notifyFiveHoursBeforeReset)
+        Toggle(strings.text(.quotaExhaustedAlert), isOn: $settings.notifyQuotaExhausted)
         HStack(spacing: 8) {
           Text(strings.text(.previewFeedback))
           Spacer()

@@ -14,7 +14,8 @@ enum TiboFeedbackTiming: Equatable, Sendable {
 }
 
 enum AppFeedbackPayload: Equatable, Sendable {
-  case quota(remaining: Int, refreshAt: Date?, preview: Bool)
+  case recovery(QuotaRecoveryState)
+  case quota(remaining: Double, refreshAt: Date?, preview: Bool)
   case tibo(audience: String, timing: TiboFeedbackTiming, preview: Bool)
 }
 
@@ -31,8 +32,17 @@ struct AppFeedback: Identifiable, Equatable, Sendable {
   let payload: AppFeedbackPayload
   let duration: TimeInterval
 
+  var isExhaustion: Bool {
+    if case .recovery = payload { return true }
+    return false
+  }
+
   func localized(using strings: AppStrings) -> LocalizedAppFeedback {
     switch payload {
+    case .recovery(let state):
+      return LocalizedAppFeedback(
+        title: state.title(strings), message: state.message(strings),
+        callout: state.actionTitle(strings), compactTitle: state.title(strings))
     case .quota(let remaining, let refreshAt, let preview):
       let titleKey: LocalizedTextKey =
         kind == .quotaCritical ? .feedbackQuotaCriticalTitle : .feedbackQuotaLowTitle
@@ -44,12 +54,12 @@ struct AppFeedback: Identifiable, Equatable, Sendable {
         title: prefixed(strings.text(titleKey), preview: preview, strings: strings),
         message: strings.format(
           .feedbackQuotaMessage,
-          remaining,
+          QuotaPercentage.text(remaining),
           refreshAt.map { strings.fullDateTime($0) } ?? strings.text(.timeUnknown)
         ),
         callout: strings.text(calloutKey),
         compactTitle: prefixed(
-          strings.format(compactKey, remaining),
+          strings.format(compactKey, QuotaPercentage.text(remaining)),
           preview: preview,
           strings: strings
         )
@@ -111,11 +121,26 @@ enum AppFeedbackPlanner {
     criticalThreshold: Double,
     strings: AppStrings
   ) -> AppFeedback? {
+    if let recovery = QuotaRecoveryState.evaluate(current, now: current.observedAt),
+      recovery.kind == .exhausted
+    {
+      if let previous,
+        !QuotaRecoveryState.eligibleWindows(in: previous, now: current.observedAt).isEmpty
+      {
+        return nil
+      }
+      return AppFeedback(
+        id: "quota-exhausted-\(Int(current.observedAt.timeIntervalSince1970))",
+        kind: .quotaCritical, payload: .recovery(recovery), duration: 12)
+    }
+    guard current.freshness == .fresh,
+      QuotaRecoveryState.evaluate(current, now: current.observedAt) == nil
+    else { return nil }
     guard let currentWindow = current.preferredCodexWindow,
       let previousWindow = matchingPreviousWindow(currentWindow, in: previous)
     else { return nil }
 
-    let remaining = Int(currentWindow.remainingPercent.rounded())
+    let remaining = currentWindow.remainingPercent
     let resetAnchor = Int(currentWindow.resetsAt?.timeIntervalSince1970 ?? 0)
 
     if previousWindow.remainingPercent > criticalThreshold,

@@ -356,10 +356,12 @@ struct FloatingPanelView: View {
       loadedTaskCount: model.tasks.count,
       showsFeed: settings.feedEnabled,
       showsResetProbability: settings.showResetProbability,
-      feedbackHeight: FloatingPanelLayout.feedbackBannerHeight(
-        isVisible: model.transientFeedback != nil,
-        measuredHeight: feedbackBannerHeight
-      )
+      feedbackHeight: model.quotaRecovery != nil
+        ? (feedbackBannerHeight > 0 ? ceil(feedbackBannerHeight) : 132)
+        : FloatingPanelLayout.feedbackBannerHeight(
+          isVisible: model.transientFeedback != nil,
+          measuredHeight: feedbackBannerHeight
+        )
     )
   }
 
@@ -524,17 +526,30 @@ struct FloatingPanelView: View {
 
   private var expandedContent: some View {
     VStack(alignment: .leading, spacing: FloatingPanelLayout.expandedSectionSpacing) {
-      if let feedback = model.transientFeedback {
-        FeedbackBannerView(feedback: feedback, language: settings.appLanguage)
-          .transition(.nativeTopReveal)
-          .background {
-            GeometryReader { proxy in
-              Color.clear.preference(
-                key: FeedbackBannerHeightKey.self,
-                value: proxy.size.height
-              )
-            }
+      if let recovery = model.quotaRecovery {
+        QuotaRecoveryView(
+          state: recovery, language: settings.appLanguage,
+          isRefreshing: model.isRefreshingQuota, action: model.handleQuotaRecovery
+        )
+        .background {
+          GeometryReader { proxy in
+            Color.clear.preference(key: FeedbackBannerHeightKey.self, value: proxy.size.height)
           }
+        }
+      } else if let feedback = model.transientFeedback, !feedback.isExhaustion {
+        FeedbackBannerView(
+          feedback: feedback, language: settings.appLanguage,
+          recoveryAction: model.handleQuotaRecovery
+        )
+        .transition(.nativeTopReveal)
+        .background {
+          GeometryReader { proxy in
+            Color.clear.preference(
+              key: FeedbackBannerHeightKey.self,
+              value: proxy.size.height
+            )
+          }
+        }
       }
       header
       quotaList
@@ -564,11 +579,14 @@ struct FloatingPanelView: View {
   }
 
   @ViewBuilder private var collapsedContent: some View {
-    if quotaDisplay.isDual {
+    if let recovery = model.quotaRecovery {
+      CompactQuotaRecoveryView(
+        state: recovery, language: settings.appLanguage, action: model.handleQuotaRecovery)
+    } else if quotaDisplay.isDual {
       DualCompactQuotaView(
         entries: quotaDisplay.compact,
         planName: model.quota.map(strings.compactPlanName) ?? strings.text(.planUnknown),
-        resetCount: model.quota?.resetCreditCount,
+        resetCount: model.availableResetCount,
         freshnessColor: freshnessColor,
         lowThreshold: settings.lowThreshold,
         criticalThreshold: settings.criticalThreshold,
@@ -583,10 +601,12 @@ struct FloatingPanelView: View {
               Text("Codex")
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .fixedSize(horizontal: true, vertical: false)
-              Text(strings.format(.remainingCompact, Int(window.remainingPercent.rounded())))
-                .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
-                .fixedSize(horizontal: true, vertical: false)
-              if let count = model.quota?.resetCreditCount, count > 0 {
+              Text(
+                strings.format(.remainingPercentage, QuotaPercentage.text(window.remainingPercent))
+              )
+              .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
+              .fixedSize(horizontal: true, vertical: false)
+              if let count = model.availableResetCount, count > 0 {
                 Text(strings.format(.resetCountCompact, count))
                   .font(.caption.weight(.semibold))
                   .foregroundStyle(.mint)
@@ -633,7 +653,8 @@ struct FloatingPanelView: View {
       lowThreshold: settings.lowThreshold,
       criticalThreshold: settings.criticalThreshold,
       freshness: model.quota?.freshness,
-      language: settings.appLanguage
+      language: settings.appLanguage,
+      recovery: model.quotaRecovery
     )
     // Preserve the exact collapsed layout proposal while the NSPanel grows.
     // Without this fixed canvas, the meter expands to the panel's new size
@@ -644,6 +665,16 @@ struct FloatingPanelView: View {
       alignment: .center
     )
     .contentShape(Rectangle())
+    .onTapGesture {
+      if model.quotaRecovery != nil { model.handleQuotaRecovery() }
+    }
+    .accessibilityAction(named: Text(strings.text(.openCodexUsage))) {
+      model.handleQuotaRecovery()
+    }
+    .help(
+      model.quotaRecovery.map { $0.message(strings) + " " + $0.actionTitle(strings) }
+        ?? strings.text(.minimalCollapsedHelp)
+    )
     .highPriorityGesture(
       DragGesture(minimumDistance: 1, coordinateSpace: .global)
         .onChanged { value in
@@ -710,12 +741,7 @@ struct FloatingPanelView: View {
           .fixedSize(horizontal: true, vertical: false)
       }
       if let quota = model.quota {
-        let count =
-          quota.resetCreditCount
-          ?? ResetCreditExpiryCarouselPolicy.availableCount(
-            in: quota.resetCredits,
-            now: Date()
-          )
+        let count = model.availableResetCount ?? 0
         if count > 0 {
           ResetCreditExpiryCarouselView(
             count: count,
@@ -827,8 +853,8 @@ struct FloatingPanelView: View {
       VStack(alignment: .trailing, spacing: 3) {
         Text(
           strings.format(
-            .remainingQuota,
-            Int(window.remainingPercent.rounded())
+            .remainingPercentage,
+            QuotaPercentage.text(window.remainingPercent)
           )
         )
         .font(.system(size: 11, weight: .semibold).monospacedDigit())

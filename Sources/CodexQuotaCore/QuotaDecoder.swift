@@ -54,7 +54,9 @@ public enum QuotaDecoder {
       planType = planType ?? string(bucket["planType"])
       let reachedType = string(bucket["rateLimitReachedType"])
       for (key, label) in [("primary", "主窗口"), ("secondary", "次窗口")] {
-        guard let raw = bucket[key] as? [String: Any], let used = double(raw["usedPercent"]) else {
+        guard let raw = bucket[key] as? [String: Any], let used = double(raw["usedPercent"]),
+          used.isFinite
+        else {
           continue
         }
         windows.append(
@@ -76,6 +78,7 @@ public enum QuotaDecoder {
       }
     }
 
+    guard !windows.isEmpty else { throw QuotaDecodeError.missingRateLimits }
     let resetPayload = result["rateLimitResetCredits"] as? [String: Any]
     let resetCreditCount = integer(resetPayload?["availableCount"])
     let resetCredits: [ResetCredit] = (resetPayload?["credits"] as? [[String: Any]] ?? []).map {

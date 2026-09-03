@@ -3,8 +3,20 @@ import Foundation
 import LocalStore
 @preconcurrency import UserNotifications
 
+@MainActor
 private final class ForegroundNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
-  func userNotificationCenter(
+  var onOpenUsage: (@MainActor () -> Void)?
+
+  nonisolated func userNotificationCenter(
+    _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
+  ) async {
+    guard response.notification.request.content.categoryIdentifier == "QUOTA_EXHAUSTED",
+      response.actionIdentifier == "OPEN_CODEX_USAGE"
+        || response.actionIdentifier == UNNotificationDefaultActionIdentifier
+    else { return }
+    await MainActor.run { self.onOpenUsage?() }
+  }
+  nonisolated func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     willPresent notification: UNNotification
   ) async -> UNNotificationPresentationOptions {
@@ -19,16 +31,42 @@ final class NotificationCoordinator {
   private var reminderPreviousSnapshot: QuotaSnapshot?
   private var reminderCurrentSnapshot: QuotaSnapshot?
   private var removedLegacyPendingReminders = false
+  var onOpenUsage: (@MainActor () -> Void)? {
+    didSet { presentationDelegate.onOpenUsage = onOpenUsage }
+  }
+  private let defaults: UserDefaults
+  private static let episodeKey = "weeklyQuotaRecoveryEpisodeV2"
+  private var exhaustionEpisode: QuotaExhaustionEpisode
 
-  init(store: SQLiteStore) {
+  init(store: SQLiteStore, defaults: UserDefaults = .standard) {
     self.store = store
+    self.defaults = defaults
+    exhaustionEpisode =
+      defaults.data(forKey: Self.episodeKey)
+      .flatMap { try? JSONDecoder().decode(QuotaExhaustionEpisode.self, from: $0) }
+      ?? QuotaExhaustionEpisode()
   }
 
   func requestAuthorizationIfNeeded(settings: AppSettings) {
-    guard settings.notificationsEnabled, notificationsAvailable else { return }
+    guard notificationsAvailable else { return }
+    // Keep old notification taps navigable even after the user turns new
+    // notifications off. This does not request or expand OS permissions.
+    UNUserNotificationCenter.current().delegate = presentationDelegate
+    guard settings.notificationsEnabled else { return }
     Task {
       let center = UNUserNotificationCenter.current()
       center.delegate = presentationDelegate
+      center.setNotificationCategories([
+        UNNotificationCategory(
+          identifier: "QUOTA_EXHAUSTED",
+          actions: [
+            UNNotificationAction(
+              identifier: "OPEN_CODEX_USAGE",
+              title: AppStrings(language: settings.appLanguage).text(.openCodexUsage),
+              options: [.foreground])
+          ],
+          intentIdentifiers: [], options: [])
+      ])
       await removeLegacyPendingRemindersIfNeeded(from: center)
       try? await store.pruneNotificationKeys()
       _ = try? await center.requestAuthorization(options: [
@@ -42,6 +80,10 @@ final class NotificationCoordinator {
     let reminderPrevious = previous ?? reminderCurrentSnapshot
     reminderPreviousSnapshot = reminderPrevious
     reminderCurrentSnapshot = current
+    let episodeID = exhaustionEpisode.update(snapshot: current, now: Date())
+    if let data = try? JSONEncoder().encode(exhaustionEpisode) {
+      defaults.set(data, forKey: Self.episodeKey)
+    }
     guard settings.notificationsEnabled else {
       cancelScheduledFiveHourReminders()
       return
@@ -60,9 +102,25 @@ final class NotificationCoordinator {
       cancelScheduledFiveHourReminders()
     }
 
+    let recovery = QuotaRecoveryState.evaluate(current)
+    if settings.notifyQuotaExhausted, let episodeID, let recovery,
+      let plan = NotificationPlanner.exhausted(
+        state: recovery, episodeID: episodeID, strings: strings)
+    {
+      dispatch(plan)
+    }
+
     if let previous {
       let oldByID = Dictionary(uniqueKeysWithValues: previous.windows.map { ($0.id, $0) })
       for window in current.windows {
+        // Only replace the legacy alert when this window has an enabled,
+        // actionable weekly recovery notification. Five-hour/no-reset cases
+        // continue using their original threshold alerts.
+        if settings.notifyQuotaExhausted, recovery?.canOpenManualReset == true,
+          recovery?.windows.contains(where: { $0.id == window.id }) == true
+        {
+          continue
+        }
         guard let old = oldByID[window.id] else { continue }
         if let critical = NotificationPlanner.thresholdCrossing(
           old: old,
@@ -181,7 +239,8 @@ final class NotificationCoordinator {
   private func dispatch(_ plan: NotificationPlan) {
     switch plan.delivery {
     case .immediate:
-      deliver(key: plan.key, title: plan.title, body: plan.body)
+      deliver(
+        key: plan.key, title: plan.title, body: plan.body, opensUsage: plan.opensUsageSettings)
     case .scheduled(let date, let prefix):
       schedule(
         key: plan.key,
@@ -193,16 +252,25 @@ final class NotificationCoordinator {
     }
   }
 
-  private func deliver(key: String, title: String, body: String) {
+  private func deliver(key: String, title: String, body: String, opensUsage: Bool = false) {
     guard notificationsAvailable else { return }
     Task {
+      let center = UNUserNotificationCenter.current()
+      let authorization = await center.notificationSettings().authorizationStatus
+      guard authorization == .authorized || authorization == .provisional else { return }
       guard (try? await store.claimNotification(key: key)) == true else { return }
       let content = UNMutableNotificationContent()
       content.title = title
       content.body = body
       content.sound = .default
+      if opensUsage { content.categoryIdentifier = "QUOTA_EXHAUSTED" }
       let request = UNNotificationRequest(identifier: key, content: content, trigger: nil)
-      try? await UNUserNotificationCenter.current().add(request)
+      do {
+        try await center.add(request)
+      } catch {
+        // A failed delivery must not permanently consume this episode's alert.
+        try? await store.releaseNotification(key: key)
+      }
     }
   }
 

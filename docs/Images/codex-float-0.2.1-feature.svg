@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1024" viewBox="0 0 1536 1024">
+  <rect width="1536" height="1024" fill="#FAF9F6"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans CJK SC', sans-serif" fill="#202527">
+    <text x="768" y="76" text-anchor="middle" font-size="54" font-weight="700">Codex Float</text>
+    <text x="768" y="126" text-anchor="middle" font-size="30" fill="#73787B">0.2.1 预览版</text>
+    <text x="768" y="216" text-anchor="middle" font-size="66" font-weight="750">位置更稳，耗尽有路</text>
+    <text x="768" y="274" text-anchor="middle" font-size="30" fill="#555B5E">锚点不再漂移；周额度耗尽且有额外重置时，给出明确入口</text>
+
+    <rect x="68" y="318" width="1400" height="488" rx="18" fill="#FDFCF9" stroke="#D9D8D3" stroke-width="2"/>
+    <line x1="768" y1="318" x2="768" y2="806" stroke="#DDDCD7" stroke-width="2"/>
+
+    <text x="418" y="370" text-anchor="middle" font-size="30" font-weight="700">固定锚点</text>
+    <text x="1118" y="370" text-anchor="middle" font-size="30" font-weight="700">额度恢复入口</text>
+
+    <!-- Stable window anchor diagram -->
+    <rect x="154" y="408" width="528" height="244" rx="22" fill="#F0EFEC" stroke="#CAC9C5" stroke-width="2"/>
+    <rect x="154" y="408" width="528" height="54" rx="22" fill="#E7E6E2"/>
+    <rect x="154" y="440" width="528" height="22" fill="#E7E6E2"/>
+    <circle cx="185" cy="435" r="7" fill="#B9B8B3"/>
+    <circle cx="207" cy="435" r="7" fill="#B9B8B3"/>
+    <circle cx="229" cy="435" r="7" fill="#B9B8B3"/>
+    <text x="266" y="445" font-size="25" font-weight="650">Codex</text>
+    <rect x="351" y="419" width="210" height="48" rx="24" fill="#FCFBF8" stroke="#BFC0BB" stroke-width="2"/>
+    <circle cx="377" cy="443" r="7" fill="#60A05A"/>
+    <text x="397" y="451" font-size="24" font-weight="700">Codex 79%</text>
+    <path d="M351 482 L351 523" stroke="#60A05A" stroke-width="3" stroke-linecap="round"/>
+    <path d="M342 514 L351 523 L360 514" fill="none" stroke="#60A05A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="351" y="536" width="92" height="52" rx="26" fill="#FCFBF8" stroke="#BFC0BB" stroke-width="2"/>
+    <rect x="374" y="548" width="10" height="28" rx="5" fill="#D8D8D4"/>
+    <rect x="374" y="556" width="10" height="20" rx="5" fill="#60A05A"/>
+    <text x="463" y="569" font-size="21" fill="#555B5E">完整与极简共享左上角</text>
+    <circle cx="353" cy="419" r="7" fill="#60A05A"/>
+    <path d="M353 419 h-42 v-28" fill="none" stroke="#60A05A" stroke-width="3" stroke-linecap="round"/>
+    <text x="184" y="395" font-size="20" fill="#60A05A" font-weight="650">跟随标题区域</text>
+    <text x="418" y="701" text-anchor="middle" font-size="24" fill="#555B5E">系统重排不写入用户位置</text>
+    <text x="418" y="739" text-anchor="middle" font-size="22" fill="#73787B">拖动后记忆窗口相对位置 · 多屏按工具锚点选屏</text>
+
+    <!-- Recovery entry diagram -->
+    <rect x="854" y="408" width="528" height="244" rx="22" fill="#F0EFEC" stroke="#CAC9C5" stroke-width="2"/>
+    <circle cx="886" cy="445" r="8" fill="#D56B5F"/>
+    <text x="908" y="455" font-size="30" font-weight="720">Codex · 0%</text>
+    <rect x="1211" y="424" width="138" height="42" rx="21" fill="#E7EFE5"/>
+    <path d="M1235 445a10 10 0 1 1 6 9" fill="none" stroke="#60A05A" stroke-width="3" stroke-linecap="round"/>
+    <path d="M1232 439v9h9" fill="none" stroke="#60A05A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1263" y="453" font-size="20" font-weight="650" fill="#4F8D4B">1 次重置</text>
+    <text x="886" y="508" font-size="23" fill="#555B5E">周额度已用尽，可使用额外重置</text>
+    <rect x="886" y="535" width="464" height="68" rx="18" fill="#5F9D59"/>
+    <text x="1118" y="578" text-anchor="middle" font-size="25" font-weight="700" fill="#FFFFFF">打开设置 → 用量</text>
+    <text x="1118" y="701" text-anchor="middle" font-size="24" fill="#555B5E">只有满足恢复条件时才出现</text>
+    <text x="1118" y="739" text-anchor="middle" font-size="22" fill="#73787B">5 小时耗尽不引导 · 无重置次数保持原样</text>
+
+    <!-- Capability row -->
+    <line x1="68" y1="850" x2="1468" y2="850" stroke="#DDDCD7" stroke-width="2"/>
+    <g transform="translate(151 887)" fill="none" stroke="#555B5E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M0 18h36M7 7v22M29 7v22"/>
+    </g>
+    <text x="205" y="921" font-size="25" font-weight="620">共享锚点</text>
+    <line x1="388" y1="878" x2="388" y2="938" stroke="#DDDCD7"/>
+
+    <g transform="translate(458 886)" fill="none" stroke="#555B5E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="1" y="4" width="38" height="30" rx="7"/>
+      <path d="M10 14h20M10 23h14"/>
+    </g>
+    <text x="518" y="921" font-size="25" font-weight="620">目标窗口稳定</text>
+    <line x1="731" y1="878" x2="731" y2="938" stroke="#DDDCD7"/>
+
+    <g transform="translate(804 886)" fill="none" stroke="#555B5E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2 20a18 18 0 1 1 6 13"/>
+      <path d="M2 8v12h12"/>
+    </g>
+    <text x="860" y="921" font-size="25" font-weight="620">系统通知提醒</text>
+    <line x1="1084" y1="878" x2="1084" y2="938" stroke="#DDDCD7"/>
+
+    <g transform="translate(1152 885)" fill="none" stroke="#555B5E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 33l32-26M12 7h24v24"/>
+    </g>
+    <text x="1207" y="921" font-size="25" font-weight="620">只读打开用量页</text>
+
+    <text x="68" y="988" font-size="18" fill="#555B5E">功能示意图 · 数据为示例 · 不会自动消耗 Reset</text>
+    <text x="1468" y="988" text-anchor="end" font-size="18" fill="#555B5E">macOS 14+ · Apple Silicon / Intel · 未公证预览版</text>
+  </g>
+</svg>

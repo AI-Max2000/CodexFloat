@@ -4,18 +4,18 @@ Codex Float 是一个 macOS 14+ 原生浮窗助手。它默认只在 ChatGPT/Cod
 
 当前版本正在按公开测试版标准准备：只读，不会消耗 Reset，也不会读取 `auth.json`、聊天正文、rollout 或浏览器 Cookie。Codex Float 是独立社区项目，与 OpenAI 或 X 无隶属、授权或背书关系。
 
-最新版本：[0.2.0 更新说明](docs/releases/0.2.0.md) · [下载 DMG / ZIP](https://github.com/AI-Max2000/CodexFloat/releases/tag/preview-0.2.0)。支持 Apple Silicon / Intel，macOS 14+。这是 **未公证预览版**，不是 Apple Developer ID 正式签名版；首次打开可能被 Gatekeeper 拦截，请先阅读[安装说明](docs/releases/INSTALL-PREVIEW.txt)。历史发布保持独立保留。
+最新版本：[0.2.1 更新说明](docs/releases/0.2.1.md) · [下载 DMG / ZIP](https://github.com/AI-Max2000/CodexFloat/releases/tag/preview-0.2.1)。支持 Apple Silicon / Intel，macOS 14+。这是 **未公证预览版**，不是 Apple Developer ID 正式签名版；首次打开可能被 Gatekeeper 拦截，请先阅读[安装说明](docs/releases/INSTALL-PREVIEW.txt)。历史发布保持独立保留。
 
-## 0.2.0：极简额度，自由调节
+## 0.2.1：位置更稳，耗尽有路
 
-![Codex Float 0.2.0 功能介绍：竖条、横条、圆环与尺寸调节](docs/Images/codex-float-0.2.0-feature.png)
+![Codex Float 0.2.1 功能介绍：稳定锚点与额度恢复入口](docs/Images/codex-float-0.2.1-feature.png)
 
 *上图为生成的功能示意图，额度为示例，不是真实账号截图。*
 
-选择「设置 → 浮窗 → 极简进度条」，即可在「极简外观」切换竖条、横条、圆环，并调节高度 / 长度 / 直径、粗细和 50%–200% 整体大小。各样式独立记忆尺寸，支持实时预览和恢复默认。贴近屏幕边缘时自动选择展开方向，收起后回到原位。
+本版解决系统操作后浮窗位置漂移：未手动摆放时优先跟随 Codex 标题，用户拖动后记住窗口相对位置，完整额度与极简进度条共享同一个左上角锚点。周额度真正耗尽且存在可用额外重置时，会显示明确、可点击的恢复入口并打开 Codex「设置 → 用量」；不会自动消耗 Reset。
 
 <details>
-<summary>查看真实原生渲染与设置界面（固定测试样本）</summary>
+<summary>查看 0.2.0 加入的极简样式与设置界面（固定测试样本）</summary>
 
 <img src="docs/Images/codex-float-minimal-styles-native.png" width="760" alt="原生测试视图：竖条、横条、圆环的单额度、双额度与自定义尺寸">
 
@@ -44,7 +44,7 @@ Codex Float 是一个 macOS 14+ 原生浮窗助手。它默认只在 ChatGPT/Cod
   <img src="docs/Images/github-style-v1/05-settings.png" width="760" alt="功能示意：设置中切换三种显示形态，支持悬停展开、快捷键和界面语言">
 </p>
 
-<p align="center"><sub>三种形态可随时在设置中切换，并分别记住用户调整后的位置。</sub></p>
+<p align="center"><sub>三种形态可随时在设置中切换；完整额度与极简进度条共用用户调整后的左上角锚点。</sub></p>
 
 <details>
 <summary>按账号实际窗口显示 5 小时与每周额度</summary>
@@ -62,8 +62,8 @@ Codex Float 是一个 macOS 14+ 原生浮窗助手。它默认只在 ChatGPT/Cod
 - 普通与极简进度条会随剩余额度缩短，并按正常、偏低、即将用尽显示绿色、黄色、红色；进入阈值前会先逐步混色，长度与颜色均使用缓动过渡。
 - “仅 ChatGPT / Codex 在前台时显示”默认开启：切到其他应用会自动隐藏，返回后自动恢复；手动隐藏优先，不会因切回而擅自恢复。该设置可关闭。
 - 所有 Spaces、全屏辅助窗口、多显示器；按屏幕保存归一化位置，拔掉显示器后自动回到可见区域。
-- 「设置 → 浮窗 → 跟随 Codex 窗口移动」默认开启，仅适用于完整额度和极简进度条（包括展开的浮层）。检测到 Codex 窗口移动时暂时隐藏工具，松手且位置稳定约 120 毫秒后，直接在记忆的相对位置恢复，不显示追赶过程。按住鼠标中途停顿不会重新显示；在聊天里拖选文字但窗口未移动时不会隐藏。
-- 拖动工具可重新设置固定位置，两种形态分别记忆。关闭后独立摆放；菜单栏模式不参与跟随。临时隐藏期间继续低频定位，且不拦截鼠标；手动隐藏、切换到不满足显示条件的应用、关闭功能或切到菜单栏时停止跟踪，不会被延迟恢复重新唤出。仅读取窗口几何信息，不读取聊天内容、不需要辅助功能或屏幕录制权限。
+- 「设置 → 浮窗 → 跟随 Codex 窗口移动」默认开启，仅适用于完整额度和极简进度条（包括展开的浮层）。未手动摆放时优先跟随 Codex 标题，标题不可用时回到窗口左上角；用户拖动工具后改为记忆窗口相对位置。检测到 Codex 窗口移动时暂时隐藏工具，松手且位置稳定约 120 毫秒后，直接在记忆位置恢复，不显示追赶过程。
+- 完整额度与极简进度条共享同一个左上角锚点；系统重排、显示器参数变化和普通轮询不会把临时位置写成用户位置，也不会随意切换到另一个 Codex 窗口。菜单栏模式不参与跟随。默认只读取窗口几何；如果用户已经授予辅助功能权限，会额外检查窗口顶部的精确 `Codex` 标题控件以改善初始定位，不主动索取权限，也不读取聊天正文。
 - 菜单栏额度形态使用真正的系统状态栏项目：自动适配 macOS 浅色/深色外观，悬停查看完整内容，右键打开操作菜单；百分比和刷新倒计时会持续更新，可按住 Command 拖到刘海附近，位置由 macOS 保存。
 - 当 macOS 因菜单栏拥挤隐藏入口时，在任意应用中按全局快捷键即可显示或隐藏浮窗，无需辅助功能权限。默认为 `⌃⌥C`（Control–Option–C），可在设置中直接录制新组合、关闭或恢复默认。
 - 浮窗齿轮和菜单栏右键均可打开设置；可调整悬停折叠延时、启动时是否显示、任务数量、通知阈值与活动雷达。
@@ -139,10 +139,10 @@ CODEX_FLOAT_NOTARY_PROFILE="codexfloat-notary" \
 没有 Developer ID 时，可显式生成未公证预览附件（不会触发正式公证工作流）：
 
 ```bash
-CODEX_FLOAT_VERSION=0.2.0 CODEX_FLOAT_BUILD_NUMBER=2 ./Scripts/package-preview.sh
+CODEX_FLOAT_VERSION=0.2.1 CODEX_FLOAT_BUILD_NUMBER=2026090401 ./Scripts/package-preview.sh
 ```
 
-输出到 `dist/preview-0.2.0/`，包含 Universal 2 DMG、ZIP、功能介绍图和 `SHA256SUMS.txt`。脚本拒绝覆盖已有版本目录；旧包不会被新包替换。正式发布使用 `v*` 标签，未公证预览使用 `preview-*` 标签，二者明确区分。
+输出到 `dist/preview-0.2.1/`，包含 Universal 2 DMG、ZIP、功能介绍图和 `SHA256SUMS.txt`。脚本拒绝覆盖已有版本目录；旧包不会被新包替换。正式发布使用 `v*` 标签，未公证预览使用 `preview-*` 标签，二者明确区分。
 
 ## GitHub 发布准备
 

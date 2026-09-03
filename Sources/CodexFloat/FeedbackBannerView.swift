@@ -4,6 +4,7 @@ struct FeedbackBannerView: View {
   let feedback: AppFeedback
   let language: AppLanguage
   var isPopover = false
+  var recoveryAction: () -> Void = {}
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var isPulsing = false
@@ -12,6 +13,14 @@ struct FeedbackBannerView: View {
   }
 
   var body: some View {
+    if case .recovery(let state) = feedback.payload {
+      QuotaRecoveryView(state: state, language: language, action: recoveryAction)
+    } else {
+      standardBanner
+    }
+  }
+
+  private var standardBanner: some View {
     HStack(alignment: .top, spacing: 10) {
       ZStack {
         Circle()

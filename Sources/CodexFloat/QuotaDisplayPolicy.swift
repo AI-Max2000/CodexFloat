@@ -16,7 +16,7 @@ struct QuotaDisplayEntry: Identifiable, Equatable {
   }
 
   var percentage: String {
-    window.map { "\(Int($0.remainingPercent.rounded()))%" } ?? "--"
+    window.map { QuotaPercentage.text($0.remainingPercent) } ?? "--"
   }
 
   func title(_ strings: AppStrings) -> String {
@@ -52,7 +52,7 @@ struct QuotaDisplayEntry: Identifiable, Equatable {
   func help(_ strings: AppStrings, now: Date) -> String {
     guard let window else { return "\(title(strings)) · \(strings.text(.quotaWindowNotReturned))" }
     return
-      "\(title(strings)) · \(strings.format(.remainingQuota, Int(window.remainingPercent.rounded()))) · \(strings.countdown(to: window.resetsAt, now: now))"
+      "\(title(strings)) · \(strings.format(.remainingPercentage, QuotaPercentage.text(window.remainingPercent))) · \(strings.countdown(to: window.resetsAt, now: now))"
   }
 }
 

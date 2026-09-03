@@ -67,7 +67,30 @@ struct WindowPinTests {
     #expect(offset.left == 30 && offset.top == 30)
   }
 
-  @Test @MainActor func offsetsAreIndependentAndSurviveRelaunch() throws {
+  @Test func automaticAnchorTracksTheLabelAndScreenSelectionUsesThatAnchor() throws {
+    let window = NSRect(x: 900, y: 100, width: 900, height: 700)
+    let label = NSRect(x: 1_050, y: 740, width: 60, height: 24)
+    #expect(
+      WindowPinGeometry.automaticAnchorPoint(windowFrame: window, labelFrame: label)
+        == NSPoint(x: 1_120, y: 764))
+    #expect(
+      WindowPinGeometry.automaticAnchorPoint(windowFrame: window, labelFrame: nil)
+        == NSPoint(x: 912, y: 762))
+    let screens = [
+      NSRect(x: 0, y: 0, width: 1_000, height: 900),
+      NSRect(x: 1_000, y: 0, width: 1_000, height: 900),
+    ]
+    #expect(
+      WindowPinGeometry.screenIndex(
+        containing: NSPoint(x: 1_120, y: 764), windowFrame: window,
+        visibleFrames: screens) == 1)
+    #expect(
+      WindowPinGeometry.screenIndex(
+        containing: NSPoint(x: 920, y: 764), windowFrame: window,
+        visibleFrames: screens) == 0)
+  }
+
+  @Test @MainActor func oneSharedOffsetSurvivesModeChangesAndMigratesLegacyData() throws {
     let suite = "WindowPinOffsets.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
@@ -81,11 +104,12 @@ struct WindowPinTests {
     store.saveWindowPinOffset(minimal, for: .minimal)
     store.saveWindowPinOffset(full, for: .menuBar)
     let restored = PanelPlacementStore(defaults: defaults)
-    #expect(restored.windowPinOffset(for: .standard) == full)
+    #expect(restored.windowPinOffset(for: .standard) == minimal)
     #expect(restored.windowPinOffset(for: .minimal) == minimal)
     #expect(restored.windowPinOffset(for: .menuBar) == nil)
+    #expect(restored.windowPinIsUserCustomized(for: .standard))
     defaults.set(Data("not json".utf8), forKey: "codexWindowPinOffsetsV1")
-    #expect(restored.windowPinOffset(for: .standard) == nil)
+    #expect(restored.windowPinOffset(for: .standard) == minimal)
   }
 
   @Test func geometryNeedsNoTitleAndRejectsUnrelatedHiddenOrSmallWindows() throws {
@@ -112,9 +136,83 @@ struct WindowPinTests {
       CGRect(x: 0, y: 0, width: 200, height: 100).dictionaryRepresentation
     #expect(CodexWindowGeometry.window(from: info, processID: pid, primaryScreenTop: 900) == nil)
   }
+
+  @Test func windowSelectionKeepsTheTargetUnlessTheUserClicksAnotherWindow() throws {
+    let first = TrackedCodexWindow(
+      id: 1, processID: 100, frame: NSRect(x: 0, y: 0, width: 800, height: 700))
+    let second = TrackedCodexWindow(
+      id: 2, processID: 100, frame: NSRect(x: 850, y: 0, width: 800, height: 700))
+    #expect(
+      CodexWindowSelection.choose(
+        from: [second, first], preferred: first, mousePoint: nil)?.id == first.id)
+    #expect(
+      CodexWindowSelection.choose(
+        from: [first, second], preferred: nil, mousePoint: NSPoint(x: 900, y: 300))?.id
+        == second.id)
+    #expect(
+      CodexWindowSelection.choose(from: [second, first], preferred: nil, mousePoint: nil)?.id
+        == second.id)
+  }
 }
 
 extension FloatingPanelLayoutTests {
+  @Test @MainActor func systemOwnedPanelMoveIsCorrectedWithoutReplacingTheAnchor() async throws {
+    try await withWindowPinFixture(mode: .minimal) { controller, _, _, window in
+      controller.updateCodexWindow(window)
+      let pinned = controller.compactAnchorFrame
+      controller.panel.setFrameOrigin(NSPoint(x: pinned.minX + 64, y: pinned.minY))
+      controller.windowDidMove(Notification(name: NSWindow.didMoveNotification))
+      try await Task.sleep(for: .milliseconds(30))
+      #expect(controller.compactAnchorFrame == pinned)
+      #expect(controller.panel.frame == pinned)
+    }
+  }
+
+  @Test @MainActor func automaticAnchorFollowsCodexLabelUntilTheUserDrags() async throws {
+    try await withWindowPinFixture(mode: .minimal, userCustomized: false) {
+      controller, _, _, window in
+      let firstLabel = NSRect(
+        x: window.frame.minX + 90, y: window.frame.maxY - 30,
+        width: 54, height: 22)
+      controller.updateCodexWindow(
+        TrackedCodexWindow(
+          id: window.id, processID: window.processID, frame: window.frame,
+          codexLabelFrame: firstLabel))
+      #expect(controller.panel.frame.minX == firstLabel.maxX + 10)
+      let movedLabel = firstLabel.offsetBy(dx: 120, dy: 0)
+      controller.updateCodexWindow(
+        TrackedCodexWindow(
+          id: window.id, processID: window.processID, frame: window.frame,
+          codexLabelFrame: movedLabel))
+      #expect(controller.panel.frame.minX == movedLabel.maxX + 10)
+      controller.handleMinimalDrag(translation: CGSize(width: 20, height: 0), ended: true)
+      #expect(!controller.followsCodexLabelAutomatically)
+      let customized = controller.panel.frame
+      controller.updateCodexWindow(
+        TrackedCodexWindow(
+          id: window.id, processID: window.processID, frame: window.frame,
+          codexLabelFrame: firstLabel))
+      #expect(controller.panel.frame == customized)
+    }
+  }
+
+  @Test @MainActor func fullAndMinimalModesShareOneTopLeftAnchor() async throws {
+    try await withWindowPinFixture(mode: .minimal) { controller, settings, _, window in
+      controller.updateCodexWindow(window)
+      let minimal = controller.compactAnchorFrame
+      settings.quotaDisplayMode = .standard
+      try await Task.sleep(for: .milliseconds(50))
+      controller.updateCodexWindow(window)
+      let standard = controller.compactAnchorFrame
+      #expect(standard.minX == minimal.minX)
+      #expect(standard.maxY == minimal.maxY)
+      settings.quotaDisplayMode = .minimal
+      try await Task.sleep(for: .milliseconds(50))
+      controller.updateCodexWindow(window)
+      #expect(controller.compactAnchorFrame == minimal)
+    }
+  }
+
   @Test @MainActor func nativeHiddenWindowPipelineKeepsTheSampledOffset()
     async throws
   {
@@ -195,6 +293,7 @@ extension FloatingPanelLayoutTests {
       try await withWindowPinFixture(mode: mode) { controller, settings, placement, window in
         controller.updateCodexWindow(window)
         let resting = controller.panel.frame
+        let originalPin = placement.windowPinOffset(for: mode)
         controller.setCollapsed(false, animated: true)
         try await Task.sleep(for: .milliseconds(55))
         controller.updateCodexWindow(window.shifted(dx: 60, dy: -25))
@@ -207,8 +306,8 @@ extension FloatingPanelLayoutTests {
         try await waitForPinTransition(controller)
         #expect(controller.panel.frame == resting.offsetBy(dx: 110, dy: -45))
         #expect(
-          placement.windowPinOffset(for: mode) == nil,
-          "Automatic following must not save a user drag")
+          placement.windowPinOffset(for: mode) == originalPin,
+          "Automatic following must not change the saved user offset")
         let last = controller.panel.frame
         controller.updateCodexWindow(nil)
         #expect(controller.panel.frame == last)
@@ -265,6 +364,7 @@ extension FloatingPanelLayoutTests {
       try await withWindowPinFixture(mode: mode) { controller, _, placement, window in
         controller.updateCodexWindow(window)
         let resting = controller.panel.frame
+        let originalPin = placement.windowPinOffset(for: mode)
         var visibilityEvents: [Bool] = []
         controller.onVisibilityChanged = { visibilityEvents.append($0) }
         controller.setCollapsed(false, animated: true)
@@ -287,7 +387,7 @@ extension FloatingPanelLayoutTests {
         #expect(!controller.panel.ignoresMouseEvents)
         #expect(controller.panel.frame == resting.offsetBy(dx: 60, dy: -25))
         #expect(visibilityEvents.isEmpty)
-        #expect(placement.windowPinOffset(for: mode) == nil)
+        #expect(placement.windowPinOffset(for: mode) == originalPin)
         // Settling must not revive a panel explicitly hidden in the meantime.
         controller.setCodexWindowMoving(true)
         controller.hide()
@@ -395,6 +495,7 @@ extension TrackedCodexWindow {
 
 @MainActor private func withWindowPinFixture(
   mode: QuotaDisplayMode,
+  userCustomized: Bool = true,
   body: (FloatingPanelController, AppSettings, PanelPlacementStore, TrackedCodexWindow) async throws
     -> Void
 ) async throws {
@@ -415,6 +516,15 @@ extension TrackedCodexWindow {
     frame: NSRect(
       x: window.frame.minX + 35,
       y: window.frame.maxY - 38 - 54, width: 340, height: 54), mode: mode, expandedWidth: 340)
+  if userCustomized {
+    placement.saveWindowPinOffset(
+      WindowPinOffset(
+        panelFrame: NSRect(
+          x: window.frame.minX + 35,
+          y: window.frame.maxY - 38 - 54, width: 340, height: 54),
+        windowFrame: window.frame),
+      for: mode)
+  }
   let settings = AppSettings(defaults: defaults)
   settings.quotaDisplayMode = mode
   settings.showRecentTasks = false

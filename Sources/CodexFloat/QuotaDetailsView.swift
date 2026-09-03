@@ -51,19 +51,21 @@ struct QuotaDetailsView: View {
                   accessibilityName: strings.windowDisplayName(window)
                 )
                 HStack {
-                  Text(strings.format(
-                    .remainingQuota,
-                    Int(window.remainingPercent.rounded())
-                  ))
+                  Text(
+                    strings.format(
+                      .remainingPercentage,
+                      QuotaPercentage.text(window.remainingPercent)
+                    ))
                   if let duration = window.windowDurationMinutes {
                     Text(strings.format(.windowMinutes, duration))
                   }
                   Spacer()
-                  Text(strings.format(
-                    .resetsAt,
-                    window.resetsAt.map { strings.fullDateTime($0, seconds: true) }
-                      ?? strings.text(.timeUnknown)
-                  ))
+                  Text(
+                    strings.format(
+                      .resetsAt,
+                      window.resetsAt.map { strings.fullDateTime($0, seconds: true) }
+                        ?? strings.text(.timeUnknown)
+                    ))
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -96,11 +98,12 @@ struct QuotaDetailsView: View {
                     Text(strings.format(.creditedAt, strings.shortDateTime(granted)))
                   }
                   Spacer()
-                  Text(strings.format(
-                    .expiresAt,
-                    credit.expiresAt.map { strings.fullDateTime($0) }
-                      ?? strings.text(.timeUnknown)
-                  ))
+                  Text(
+                    strings.format(
+                      .expiresAt,
+                      credit.expiresAt.map { strings.fullDateTime($0) }
+                        ?? strings.text(.timeUnknown)
+                    ))
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)

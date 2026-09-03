@@ -125,6 +125,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   private var surfaceTransitionTask: Task<Void, Never>?
   private var menuBarPresentationTask: Task<Void, Never>?
   private var placementSaveTask: Task<Void, Never>?
+  private var systemFrameCorrectionTask: Task<Void, Never>?
   private var minimalDragStartFrame: NSRect?
   private var minimalDragVisibleFrame: NSRect?
   private var isDraggingMinimalBar = false
@@ -136,12 +137,15 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
   private var pendingUserPlacement: PendingUserPlacement?
   private var codexWindow: TrackedCodexWindow?
   private var windowPinOffset: WindowPinOffset?
+  private var usesAutomaticCodexAnchor = true
+  private var shouldPinCurrentPositionOnNextCodexWindow = false
   private var isApplyingWindowFollow = false
   private(set) var isHiddenForCodexMovement = false
   var onVisibilityChanged: ((Bool) -> Void)?
   var onOpenSettings: (() -> Void)?
   var onRequestHide: (() -> Void)?
   var onMenuBarHoverChanged: ((Bool) -> Void)?
+  var followsCodexLabelAutomatically: Bool { usesAutomaticCodexAnchor }
 
   private struct PendingUserPlacement {
     let frame: NSRect
@@ -172,6 +176,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       defer: false
     )
     super.init()
+    usesAutomaticCodexAnchor = !placement.windowPinIsUserCustomized(for: activePlacementMode)
     state.minimalMeterAppearance = model.settings.minimalMeterAppearance.normalized
     isApplyingPanelLayout = true
     defer { isApplyingPanelLayout = false }
@@ -268,12 +273,27 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       Task { @MainActor [weak self] in self?.applyMinimalAppearance() }
     }
     windowFollowingSubscription = model.settings.$followCodexWindow.dropFirst().sink {
-      [weak self] _ in
+      [weak self] isEnabled in
       Task { @MainActor [weak self] in
         guard let self else { return }
         self.flushPendingPlacementSave()
         self.windowPinOffset = nil
-        if !self.model.settings.followCodexWindow { self.setCodexWindowMoving(false) }
+        if isEnabled {
+          if self.placement.windowPinOffset(for: self.activePlacementMode) != nil {
+            // A real saved pin remains authoritative when follow is re-enabled.
+            self.usesAutomaticCodexAnchor =
+              !self.placement.windowPinIsUserCustomized(for: self.activePlacementMode)
+            self.shouldPinCurrentPositionOnNextCodexWindow = false
+          } else {
+            // Without a saved pin, enabling follow keeps the current position
+            // instead of unexpectedly snapping to an unrelated default.
+            self.usesAutomaticCodexAnchor = false
+            self.shouldPinCurrentPositionOnNextCodexWindow = true
+          }
+        } else {
+          self.shouldPinCurrentPositionOnNextCodexWindow = false
+          self.setCodexWindowMoving(false)
+        }
         self.updateCodexWindow(self.codexWindow)
       }
     }
@@ -518,6 +538,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
 
     collapseTask?.cancel()
     if minimalDragStartFrame == nil {
+      systemFrameCorrectionTask?.cancel()
       isDraggingMinimalBar = true
       suppressMinimalHoverUntilExit = true
       minimalDragStartFrame = panel.frame
@@ -542,7 +563,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     minimalDragStartFrame = nil
     minimalDragVisibleFrame = nil
     isDraggingMinimalBar = false
-    rememberWindowPin(frame: frame)
+    rememberWindowPin(frame: frame, userCustomized: true)
     placement.saveUserPlacement(
       panel: panel,
       mode: activePlacementMode,
@@ -611,22 +632,44 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       let window, !isDraggingMinimalBar, !userResizeIsInProgress,
       !(userMoveIsInProgress && NSEvent.pressedMouseButtons & 1 == 1)
     else { return }
-    if windowPinOffset == nil {
+    if shouldPinCurrentPositionOnNextCodexWindow {
+      shouldPinCurrentPositionOnNextCodexWindow = false
+      rememberWindowPin(frame: resolvedCollapsedRestingFrame(), userCustomized: true)
+    }
+    if windowPinOffset == nil, !usesAutomaticCodexAnchor {
       windowPinOffset =
         placement.windowPinOffset(for: activePlacementMode)
         ?? WindowPinOffset(
           panelFrame: collapsedRestingFrame ?? panel.frame, windowFrame: window.frame)
     }
-    guard let offset = windowPinOffset,
-      let screen = NSScreen.screens.max(by: {
-        $0.visibleFrame.intersection(window.frame).area
-          < $1.visibleFrame.intersection(window.frame).area
-      }) ?? NSScreen.main
-    else { return }
-    let compact = WindowPinGeometry.frame(
-      offset: offset, windowFrame: window.frame, panelSize: collapsedSize,
-      expandedSize: NSSize(width: expandedSize.width, height: preferredExpandedHeight),
-      visibleFrame: screen.visibleFrame)
+    let offset =
+      windowPinOffset
+      ?? WindowPinOffset(
+        panelFrame: collapsedRestingFrame ?? panel.frame, windowFrame: window.frame)
+    let anchor =
+      usesAutomaticCodexAnchor
+      ? WindowPinGeometry.automaticAnchorPoint(
+        windowFrame: window.frame, labelFrame: window.codexLabelFrame)
+      : WindowPinGeometry.anchorPoint(offset: offset, windowFrame: window.frame)
+    let screens = NSScreen.screens
+    let selectedScreen =
+      WindowPinGeometry.screenIndex(
+        containing: anchor, windowFrame: window.frame,
+        visibleFrames: screens.map(\.visibleFrame)
+      ).map { screens[$0] } ?? NSScreen.main
+    guard let screen = selectedScreen else { return }
+    let compact: NSRect
+    if usesAutomaticCodexAnchor {
+      compact = PanelPlacementGeometry.initialFrame(
+        panelSize: collapsedSize, visibleFrame: screen.visibleFrame,
+        codexWindowFrame: window.frame, codexLabelFrame: window.codexLabelFrame)
+      windowPinOffset = WindowPinOffset(panelFrame: compact, windowFrame: window.frame)
+    } else {
+      compact = WindowPinGeometry.frame(
+        offset: offset, windowFrame: window.frame, panelSize: collapsedSize,
+        expandedSize: NSSize(width: expandedSize.width, height: preferredExpandedHeight),
+        visibleFrame: screen.visibleFrame)
+    }
     isApplyingWindowFollow = true
     defer { isApplyingWindowFollow = false }
     collapsedRestingFrame = compact
@@ -646,13 +689,16 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     }
   }
 
-  private func rememberWindowPin(frame: NSRect) {
+  private func rememberWindowPin(frame: NSRect, userCustomized: Bool) {
     guard model.settings.followCodexWindow, activePlacementMode != .menuBar,
       let codexWindow
     else { return }
     let offset = WindowPinOffset(panelFrame: frame, windowFrame: codexWindow.frame)
     windowPinOffset = offset
-    placement.saveWindowPinOffset(offset, for: activePlacementMode)
+    if userCustomized { usesAutomaticCodexAnchor = false }
+    placement.saveWindowPinOffset(
+      offset, for: activePlacementMode,
+      userCustomized: userCustomized || !usesAutomaticCodexAnchor)
   }
 
   func setMenuBarAnchor(_ frame: NSRect?) {
@@ -664,6 +710,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     guard !isApplyingWindowFollow, !isApplyingPanelLayout, activePlacementMode != .menuBar,
       NSEvent.pressedMouseButtons & 1 == 1
     else { return }
+    systemFrameCorrectionTask?.cancel()
     userMoveIsInProgress = true
   }
 
@@ -672,38 +719,52 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     guard model.settings.quotaDisplayMode != .menuBar else { return }
     guard !state.isCollapsing else { return }
     guard !isDraggingMinimalBar else { return }
-    synchronizeCollapsedAnchorWithCurrentPanel()
-    if NSEvent.pressedMouseButtons & 1 == 0 { userMoveIsInProgress = false }
-    if userMoveIsInProgress {
-      schedulePlacementSave()
+    guard userMoveIsInProgress else {
+      if model.settings.followCodexWindow, codexWindow != nil {
+        scheduleSystemFrameCorrection()
+      } else {
+        synchronizeCollapsedAnchorWithCurrentPanel()
+      }
+      return
     }
+    synchronizeCollapsedAnchorWithCurrentPanel()
+    schedulePlacementSave(userCustomized: true)
+    if NSEvent.pressedMouseButtons & 1 == 0 { userMoveIsInProgress = false }
   }
 
   func windowDidResize(_ notification: Notification) {
     guard !isApplyingWindowFollow, !isApplyingPanelLayout else { return }
-    if !state.isCollapsed, userResizeIsInProgress || panel.inLiveResize {
+    let isUserResize = userResizeIsInProgress || panel.inLiveResize
+    if !state.isCollapsed, isUserResize {
       expandedSize.width = panel.frame.width
     }
-    if !state.isCollapsed, !state.isExpanding, !state.isCollapsing {
+    if !state.isCollapsed, isUserResize, !state.isExpanding, !state.isCollapsing {
       state.expandedCanvasSize = panel.frame.size
     }
     guard model.settings.quotaDisplayMode != .menuBar else { return }
     guard !state.isCollapsing else { return }
     guard !isDraggingMinimalBar else { return }
-    synchronizeCollapsedAnchorWithCurrentPanel()
-    if userResizeIsInProgress || panel.inLiveResize {
-      schedulePlacementSave()
+    guard isUserResize else {
+      if model.settings.followCodexWindow, codexWindow != nil {
+        scheduleSystemFrameCorrection()
+      } else {
+        synchronizeCollapsedAnchorWithCurrentPanel()
+      }
+      return
     }
+    synchronizeCollapsedAnchorWithCurrentPanel()
+    schedulePlacementSave(userCustomized: true)
   }
 
   func windowWillStartLiveResize(_ notification: Notification) {
+    systemFrameCorrectionTask?.cancel()
     userResizeIsInProgress = true
   }
 
   func windowDidEndLiveResize(_ notification: Notification) {
     guard activePlacementMode != .menuBar else { return }
     userResizeIsInProgress = false
-    schedulePlacementSave()
+    schedulePlacementSave(userCustomized: true)
   }
 
   func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
@@ -744,7 +805,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     if model.settings.quotaDisplayMode == .minimal {
       // A user-edited size may be clamped at a screen edge. Remember that new
       // anchor too, otherwise the next host-window update or relaunch jumps.
-      schedulePlacementSave()
+      schedulePlacementSave(userCustomized: false)
     }
   }
 
@@ -758,6 +819,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     cancelSurfaceTransition()
     surfaceTransitionGeneration &+= 1
     flushPendingPlacementSave()
+    systemFrameCorrectionTask?.cancel()
     minimalDragStartFrame = nil
     minimalDragVisibleFrame = nil
     isDraggingMinimalBar = false
@@ -768,6 +830,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     state.minimalMeterAppearance = model.settings.minimalMeterAppearance.normalized
     let newMode = model.settings.quotaDisplayMode
     activePlacementMode = newMode
+    usesAutomaticCodexAnchor = !placement.windowPinIsUserCustomized(for: newMode)
     if newMode == .menuBar { setCodexWindowMoving(false) }
     windowPinOffset = nil
     if newMode == .menuBar {
@@ -979,10 +1042,10 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     collapsedRestingFrame = PanelPlacementGeometry.clamped(compact, to: visibleFrame)
   }
 
-  private func schedulePlacementSave() {
+  private func schedulePlacementSave(userCustomized: Bool) {
     guard activePlacementMode != .menuBar else { return }
     let compact = resolvedCollapsedRestingFrame()
-    rememberWindowPin(frame: compact)
+    rememberWindowPin(frame: compact, userCustomized: userCustomized)
     pendingUserPlacement = PendingUserPlacement(
       frame: compact,
       mode: activePlacementMode,
@@ -993,6 +1056,22 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
       try? await Task.sleep(for: .milliseconds(160))
       guard let self, !Task.isCancelled else { return }
       self.flushPendingPlacementSave()
+    }
+  }
+
+  private func scheduleSystemFrameCorrection() {
+    systemFrameCorrectionTask?.cancel()
+    systemFrameCorrectionTask = Task { @MainActor [weak self] in
+      // System window-management notifications can arrive after a synchronous
+      // layout guard has ended. Correct on the next run-loop turn instead of
+      // accepting that frame as a user-authored anchor.
+      await Task.yield()
+      guard let self, !Task.isCancelled,
+        !self.userMoveIsInProgress, !self.userResizeIsInProgress,
+        !self.isDraggingMinimalBar
+      else { return }
+      self.updateCodexWindow(self.codexWindow)
+      self.systemFrameCorrectionTask = nil
     }
   }
 

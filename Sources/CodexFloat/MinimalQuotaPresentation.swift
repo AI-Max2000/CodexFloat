@@ -10,6 +10,7 @@ struct MinimalQuotaPresentation: View {
   let criticalThreshold: Double
   let freshness: DataFreshness?
   let language: AppLanguage
+  var recovery: QuotaRecoveryState?
 
   private var dimensions: MinimalMeterDimensions {
     appearance.dimensions.normalized(for: appearance.style)
@@ -77,7 +78,8 @@ struct MinimalQuotaPresentation: View {
       lowThreshold: lowThreshold, criticalThreshold: criticalThreshold,
       freshness: freshness, language: language,
       meterHeight: length, meterWidth: dimensions.thickness,
-      accessibilityName: entry?.title(strings))
+      accessibilityName: entry?.title(strings),
+      recoveryEmphasis: MinimalRecoveryEmphasis.resolve(entry: entry, recovery: recovery))
   }
 
   private func horizontalMeter(_ entry: QuotaDisplayEntry?) -> some View {
@@ -91,7 +93,8 @@ struct MinimalQuotaPresentation: View {
       remainingPercent: entry?.window?.remainingPercent,
       diameter: diameter, thickness: dimensions.thickness,
       lowThreshold: lowThreshold, criticalThreshold: criticalThreshold,
-      freshness: freshness, language: language, accessibilityName: entry?.title(strings))
+      freshness: freshness, language: language, accessibilityName: entry?.title(strings),
+      recoveryEmphasis: MinimalRecoveryEmphasis.resolve(entry: entry, recovery: recovery))
   }
 }
 
@@ -105,6 +108,7 @@ struct MinimalRingQuotaView: View {
   let freshness: DataFreshness?
   let language: AppLanguage
   let accessibilityName: String?
+  var recoveryEmphasis: MinimalRecoveryEmphasis?
 
   nonisolated static func fraction(_ remaining: Double?) -> Double? {
     guard let remaining, remaining.isFinite else { return nil }
@@ -114,11 +118,11 @@ struct MinimalRingQuotaView: View {
   private var fraction: Double? { Self.fraction(remainingPercent) }
   private var accessibilityValue: String {
     guard let fraction else { return AppStrings(language: language).text(.quotaUnavailable) }
-    let percent = Int((fraction * 100).rounded())
+    let percent = QuotaPercentage.text(fraction * 100)
     return switch language {
-    case .simplifiedChinese: "剩余 \(percent)%"
-    case .traditionalChinese: "剩餘 \(percent)%"
-    case .english: "\(percent)% remaining"
+    case .simplifiedChinese: "剩余 \(percent)"
+    case .traditionalChinese: "剩餘 \(percent)"
+    case .english: "\(percent) remaining"
     }
   }
 
@@ -140,13 +144,23 @@ struct MinimalRingQuotaView: View {
     }
     .frame(width: diameter, height: diameter)
     .overlay {
-      if freshness == .stale || freshness == .offline {
+      if let recoveryEmphasis {
+        // Two inset circles trace the empty track's real edges. No generic
+        // rounded rectangle, out-of-bounds stroke, or icon over the meter.
+        ZStack {
+          Circle().strokeBorder(recoveryEmphasis.color.opacity(0.85), lineWidth: 0.9)
+          Circle().inset(by: thickness)
+            .strokeBorder(recoveryEmphasis.color.opacity(0.5), lineWidth: 0.6)
+        }
+        .allowsHitTesting(false)
+      } else if freshness == .stale || freshness == .offline {
         Circle().strokeBorder(
           freshness == .offline ? Color.red.opacity(0.7) : Color.orange.opacity(0.65),
           lineWidth: 0.7)
       }
     }
     .animation(reduceMotion ? nil : .easeInOut(duration: 0.55), value: fraction)
+    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: recoveryEmphasis)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(QuotaMeterAccessibility.title(name: accessibilityName, language: language))
     .accessibilityValue(accessibilityValue)

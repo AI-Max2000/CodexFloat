@@ -162,7 +162,7 @@ enum CodexInitialPanelPlacement {
 
   /// Reads the exact label only when Accessibility access was already granted.
   /// First launch never prompts for an extra permission just to place the panel.
-  private static func codexLabelFrame(
+  static func codexLabelFrame(
     processIdentifier: pid_t,
     expectedWindowFrame: NSRect?
   ) -> NSRect? {
@@ -176,11 +176,13 @@ enum CodexInitialPanelPlacement {
       var inspected = 0
       while let element = remaining.popLast(), inspected < 500 {
         inspected += 1
-        if elementText(element) == "Codex",
-          let quartzFrame = rectAttribute("AXFrame", of: element)
-        {
+        // Geometry and role are checked before text. This keeps title anchoring
+        // inside the top chrome and never asks chat/content elements for values.
+        if let quartzFrame = rectAttribute("AXFrame", of: element) {
           let candidate = appKitFrame(fromQuartzFrame: quartzFrame)
-          if isHeaderLabel(candidate, inside: expectedWindowFrame) {
+          if isHeaderLabel(candidate, inside: expectedWindowFrame),
+            isHeaderTextElement(element), elementText(element) == "Codex"
+          {
             return candidate
           }
         }
@@ -209,6 +211,11 @@ enum CodexInitialPanelPlacement {
       }
     }
     return nil
+  }
+
+  private static func isHeaderTextElement(_ element: AXUIElement) -> Bool {
+    guard let role = attribute(kAXRoleAttribute, of: element) as? String else { return false }
+    return role == kAXStaticTextRole || role == kAXButtonRole
   }
 
   private static func attribute(_ name: String, of element: AXUIElement) -> AnyObject? {
@@ -254,6 +261,7 @@ final class PanelPlacementStore {
 
   private let archiveKey = "panelPlacementByScreenAndModeV2"
   private let pinArchiveKey = "codexWindowPinOffsetsV1"
+  private let sharedPinArchiveKey = "codexWindowPinPreferenceV2"
   private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
@@ -261,16 +269,23 @@ final class PanelPlacementStore {
   }
 
   func windowPinOffset(for mode: QuotaDisplayMode) -> WindowPinOffset? {
-    guard mode != .menuBar,
-      let data = defaults.data(forKey: pinArchiveKey),
-      let offsets = try? JSONDecoder().decode([String: WindowPinOffset].self, from: data),
-      let offset = offsets[mode.rawValue], offset.isValid
-    else { return nil }
-    return offset
+    windowPinPreference(for: mode)?.offset
   }
 
-  func saveWindowPinOffset(_ offset: WindowPinOffset, for mode: QuotaDisplayMode) {
+  func windowPinIsUserCustomized(for mode: QuotaDisplayMode) -> Bool {
+    windowPinPreference(for: mode)?.userCustomized == true
+  }
+
+  func saveWindowPinOffset(
+    _ offset: WindowPinOffset, for mode: QuotaDisplayMode, userCustomized: Bool = true
+  ) {
     guard mode != .menuBar, offset.isValid else { return }
+    let preference = WindowPinPreference(offset: offset, userCustomized: userCustomized)
+    if let data = try? JSONEncoder().encode(preference) {
+      defaults.set(data, forKey: sharedPinArchiveKey)
+    }
+    // Keep the legacy per-mode archive during the preview migration. New reads
+    // use the shared preference so full and minimal modes have one visual anchor.
     var offsets =
       defaults.data(forKey: pinArchiveKey).flatMap {
         try? JSONDecoder().decode([String: WindowPinOffset].self, from: $0)
@@ -279,6 +294,25 @@ final class PanelPlacementStore {
     if let data = try? JSONEncoder().encode(offsets) {
       defaults.set(data, forKey: pinArchiveKey)
     }
+  }
+
+  private func windowPinPreference(for mode: QuotaDisplayMode) -> WindowPinPreference? {
+    guard mode != .menuBar else { return nil }
+    if let data = defaults.data(forKey: sharedPinArchiveKey),
+      let preference = try? JSONDecoder().decode(WindowPinPreference.self, from: data),
+      preference.offset.isValid
+    {
+      return preference
+    }
+    guard let data = defaults.data(forKey: pinArchiveKey),
+      let offsets = try? JSONDecoder().decode([String: WindowPinOffset].self, from: data),
+      let offset = offsets[mode.rawValue], offset.isValid
+    else { return nil }
+    let migrated = WindowPinPreference(offset: offset, userCustomized: true)
+    if let data = try? JSONEncoder().encode(migrated) {
+      defaults.set(data, forKey: sharedPinArchiveKey)
+    }
+    return migrated
   }
 
   @discardableResult

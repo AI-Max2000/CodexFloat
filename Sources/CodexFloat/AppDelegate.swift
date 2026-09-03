@@ -55,6 +55,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       self.panelController = panelController
       codexWindowTracker = CodexWindowTracker(
         window: panelController.panel,
+        shouldTrackCodexLabel: { [weak panelController] in
+          panelController?.followsCodexLabelAutomatically == true
+        },
         onMovementChanged: { [weak panelController] moving in
           panelController?.setCodexWindowMoving(moving)
         }
@@ -164,7 +167,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         in: button
       )
     } else {
-      togglePanel()
+      if model?.quotaRecovery != nil {
+        model?.handleQuotaRecovery()
+      } else {
+        togglePanel()
+      }
     }
   }
 
@@ -285,11 +292,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func handleWake(_ notification: Notification) {
     model?.refreshAfterWakeOrShow()
-    codexWindowTracker?.refresh(selectFrontWindow: true)
+    codexWindowTracker?.refresh(selectFrontWindow: false)
   }
 
   @objc private func handleScreensChanged(_ notification: Notification) {
-    codexWindowTracker?.refresh(selectFrontWindow: true)
+    codexWindowTracker?.refresh(selectFrontWindow: false)
     panelController?.ensureVisible()
     updateStatusItem()
   }
@@ -370,7 +377,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     statusItem?.isVisible = true
 
     let toolTip: String
-    if let feedback = model?.transientFeedback {
+    if let recovery = model?.quotaRecovery {
+      toolTip =
+        recovery.title(strings) + " · " + recovery.message(strings) + " · "
+        + recovery.actionTitle(strings)
+    } else if let feedback = model?.transientFeedback {
       let content = feedback.localized(using: strings)
       toolTip = "\(content.title)：\(content.message)"
     } else {
@@ -384,7 +395,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       ? MenuBarDualQuotaIndicator.statusItemLength : MenuBarQuotaIndicator.Layout.statusItemLength
     button.imagePosition = .imageOnly
     button.imageScaling = .scaleNone
-    if display.isDual {
+    if let recovery = model?.quotaRecovery {
+      statusItem?.length = 48
+      button.image = MenuBarRecoveryIndicator.image(
+        state: recovery, strings: strings, appearance: button.effectiveAppearance)
+    } else if display.isDual {
       button.image = MenuBarDualQuotaIndicator.image(
         entries: display.compact, strings: strings, now: Date(),
         lowThreshold: settings.lowThreshold, criticalThreshold: settings.criticalThreshold,
@@ -606,16 +621,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let popover = NSPopover()
     popover.behavior = .transient
     popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    popover.contentSize = NSSize(width: 350, height: 118)
-    popover.contentViewController = NSHostingController(
+    let contentController = NSHostingController(
       rootView: FeedbackBannerView(
         feedback: feedback,
         language: model.settings.appLanguage,
-        isPopover: true
+        isPopover: true,
+        recoveryAction: model.handleQuotaRecovery
       )
       .padding(8)
       .frame(width: 350)
+      .fixedSize(horizontal: false, vertical: true)
     )
+    popover.contentViewController = contentController
+    popover.contentSize = NSSize(
+      width: 350,
+      height: feedback.isExhaustion ? ceil(contentController.view.fittingSize.height) : 118)
     feedbackPopover = popover
     popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
   }

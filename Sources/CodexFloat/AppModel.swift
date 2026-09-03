@@ -1,4 +1,5 @@
 import ActivityClassifier
+import AppKit
 import CodexQuotaCore
 import Combine
 import Foundation
@@ -64,6 +65,7 @@ final class AppModel: ObservableObject {
   private var lastObservedTurnIDs: [String: String] = [:]
   private var quotaRefreshPending = false
   private var hasFeedBaseline = false
+  private let resetNavigator: ManualResetNavigator
 
   private var strings: AppStrings { AppStrings(language: settings.appLanguage) }
 
@@ -73,7 +75,9 @@ final class AppModel: ObservableObject {
     feedMonitor: TiboFeedMonitor = TiboFeedMonitor(),
     resetForecastSource: any ResetForecastSource = PublicResetForecastSource(),
     taskRuntimeIndex: CodexTaskRuntimeIndex = CodexTaskRuntimeIndex(),
-    settings: AppSettings = AppSettings()
+    settings: AppSettings = AppSettings(),
+    resetNavigator: ManualResetNavigator = ManualResetNavigator(),
+    initialQuota: QuotaSnapshot? = nil
   ) {
     self.store = store
     self.quotaClient = quotaClient
@@ -81,7 +85,10 @@ final class AppModel: ObservableObject {
     self.resetForecastSource = resetForecastSource
     self.taskRuntimeIndex = taskRuntimeIndex
     self.settings = settings
+    self.resetNavigator = resetNavigator
+    self.quota = initialQuota
     notifications = NotificationCoordinator(store: store)
+    notifications.onOpenUsage = { [weak self] in self?.handleQuotaRecovery() }
   }
 
   deinit {
@@ -151,11 +158,41 @@ final class AppModel: ObservableObject {
     }
   }
 
+  var quotaRecovery: QuotaRecoveryState? { QuotaRecoveryState.evaluate(quota) }
+  var availableResetCount: Int? {
+    quota.flatMap { ResetAvailability.resolve($0, now: Date()).count }
+  }
+
+  func handleQuotaRecovery() {
+    // Re-evaluate at click time: a credit or snapshot may have expired since paint.
+    // An old button or notification must not navigate after eligibility disappears.
+    guard let recovery = quotaRecovery else { return }
+    if recovery.needsRefresh {
+      refreshAfterWakeOrShow()
+    } else {
+      openCodexUsageSettings()
+    }
+  }
+
+  func openCodexUsageSettings() {
+    guard resetNavigator.open() else {
+      let alert = NSAlert()
+      alert.messageText = strings.text(.openCodexUsage)
+      alert.informativeText = strings.text(.manualResetOpenFailed)
+      alert.alertStyle = .warning
+      alert.runModal()
+      return
+    }
+    // Navigation success is not redemption success. Only a later read can
+    // establish restored quota or a reduced reset-credit count.
+    refreshAfterWakeOrShow()
+  }
+
   func assessment(for post: FeedPost) -> ActivityAssessment? { assessments[post.id] }
 
   func previewFeedback(_ kind: AppFeedbackKind) {
     let now = Date()
-    let remaining = Int(quota?.preferredCodexWindow?.remainingPercent.rounded() ?? 18)
+    let remaining = quota?.preferredCodexWindow?.remainingPercent ?? 18
     let refreshAt = quota?.preferredCodexWindow?.resetsAt ?? now.addingTimeInterval(6 * 3_600)
     let feedback: AppFeedback
     switch kind {
@@ -176,7 +213,7 @@ final class AppModel: ObservableObject {
         id: "preview-low-\(UUID().uuidString)",
         kind: kind,
         payload: .quota(
-          remaining: min(remaining, Int(settings.lowThreshold.rounded())),
+          remaining: min(remaining, settings.lowThreshold),
           refreshAt: refreshAt,
           preview: true
         ),
@@ -187,7 +224,7 @@ final class AppModel: ObservableObject {
         id: "preview-critical-\(UUID().uuidString)",
         kind: kind,
         payload: .quota(
-          remaining: min(remaining, Int(settings.criticalThreshold.rounded())),
+          remaining: min(remaining, settings.criticalThreshold),
           refreshAt: refreshAt,
           preview: true
         ),
@@ -258,7 +295,8 @@ final class AppModel: ObservableObject {
     quotaLoop = Task { [weak self] in
       guard let self else { return }
       while !Task.isCancelled {
-        let interval = self.quotaError == nil
+        let interval =
+          self.quotaError == nil
           ? self.settings.quotaRefreshInterval
           : min(10, self.settings.quotaRefreshInterval)
         try? await Task.sleep(for: .seconds(interval))
@@ -353,8 +391,13 @@ final class AppModel: ObservableObject {
         lowThreshold: settings.lowThreshold,
         criticalThreshold: settings.criticalThreshold,
         strings: strings
-      ) {
+      ), (settings.notificationsEnabled && settings.notifyQuotaExhausted) || !feedback.isExhaustion
+      {
         present(feedback)
+      }
+      if transientFeedback?.isExhaustion == true, quotaRecovery?.kind != .exhausted {
+        feedbackDismissTask?.cancel()
+        transientFeedback = nil
       }
 
       if !posts.isEmpty {

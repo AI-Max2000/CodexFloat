@@ -14,6 +14,7 @@ final class AppSettings: ObservableObject {
   private enum Key {
     static let appLanguage = "appLanguage"
     static let notificationsEnabled = "notificationsEnabled"
+    static let notifyQuotaExhausted = "notifyQuotaExhausted"
     static let lowThreshold = "lowThreshold"
     static let criticalThreshold = "criticalThreshold"
     static let quotaRefreshInterval = "quotaRefreshInterval"
@@ -57,6 +58,9 @@ final class AppSettings: ObservableObject {
   }
   @Published var lowThreshold: Double {
     didSet { defaults.set(lowThreshold, forKey: Key.lowThreshold) }
+  }
+  @Published var notifyQuotaExhausted: Bool {
+    didSet { defaults.set(notifyQuotaExhausted, forKey: Key.notifyQuotaExhausted) }
   }
   @Published var criticalThreshold: Double {
     didSet { defaults.set(criticalThreshold, forKey: Key.criticalThreshold) }
@@ -239,6 +243,7 @@ final class AppSettings: ObservableObject {
       AppLanguage(rawValue: defaults.string(forKey: Key.appLanguage) ?? "")
       ?? .simplifiedChinese
     notificationsEnabled = defaults.bool(forKey: Key.notificationsEnabled)
+    notifyQuotaExhausted = defaults.object(forKey: Key.notifyQuotaExhausted) as? Bool ?? true
     lowThreshold = defaults.double(forKey: Key.lowThreshold)
     criticalThreshold = defaults.double(forKey: Key.criticalThreshold)
     let storedRefreshInterval = defaults.double(forKey: Key.quotaRefreshInterval)
