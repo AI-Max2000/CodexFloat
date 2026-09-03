@@ -21,8 +21,13 @@ struct FloatingPanelLayoutTests {
   }
 
   @Test func collapsedBarStaysCompact() {
-    #expect(FloatingPanelLayout.collapsedWidth <= 180)
+    #expect(FloatingPanelLayout.collapsedWidth == 188)
     #expect(FloatingPanelLayout.collapsedHeight <= 56)
+    #expect(FloatingPanelLayout.collapsedLeadingPadding == 8)
+    #expect(FloatingPanelLayout.collapsedTrailingSafetyInset == 12)
+    #expect(
+      FloatingPanelLayout.collapsedTrailingSafetyInset
+        > FloatingPanelLayout.collapsedLeadingPadding)
     #expect(FloatingPanelLayout.minimalCollapsedWidth == 36)
     #expect(FloatingPanelLayout.minimalCollapsedHeight == 54)
     #expect(FloatingPanelLayout.minimalCollapsedPadding == 5)
@@ -86,7 +91,12 @@ struct FloatingPanelLayoutTests {
       canvasSize: NSSize(width: 340, height: 260),
       mode: .standard
     )
-    #expect(standardSeed == NSSize(width: 174, height: 54))
+    #expect(
+      standardSeed
+        == NSSize(
+          width: FloatingPanelLayout.collapsedWidth,
+          height: FloatingPanelLayout.collapsedHeight
+        ))
     let minimalSeed = FloatingPanelLayout.liquidSurfaceSeedSize(
       canvasSize: NSSize(width: 340, height: 260),
       mode: .minimal

@@ -428,7 +428,12 @@ func edgePixels(_ image: CGImage) throws -> Data {
   settings.showResetProbability = false
   settings.hoverCollapseDelay = 10
   let visible = try #require(NSScreen.main?.visibleFrame)
-  let size = mode == .minimal ? appearance.collapsedSize : NSSize(width: 174, height: 54)
+  let size = mode == .minimal
+    ? appearance.collapsedSize
+    : NSSize(
+      width: FloatingPanelLayout.collapsedWidth,
+      height: FloatingPanelLayout.collapsedHeight
+    )
   let compact = NSRect(
     x: visible.maxX - size.width - 4, y: visible.minY + 4, width: size.width, height: size.height)
   let placement = PanelPlacementStore(defaults: defaults)

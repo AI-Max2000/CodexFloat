@@ -6,6 +6,17 @@ All notable changes to Codex Float will be documented in this file.
 
 暂无新的未发布变更。
 
+## 0.2.2 — 2026-09-04
+
+发布标签：`preview-0.2.2`。本次提供 Universal 2 DMG / ZIP，采用 ad-hoc 签名，尚未经过 Apple Developer ID 签名与公证。
+
+### 完整额度收起态边距
+
+- 完整额度收起态宽度由 174pt 调整为 188pt，并为重置次数保留 12pt 右侧安全区，修复中文重置文案贴近圆角边缘的问题。
+- 高度继续保持 54pt；额度文字、刷新倒计时、展开锚点、悬停动效、极简进度条和菜单栏形态不变。
+- 新增布局常量回归与原生浅色/深色固定样本，避免后续修改重新把重置次数挤入圆角收束区。
+- 普通全量 207 项、Address Sanitizer 207 项、Thread Sanitizer 207 项、Release 警告即错误构建与只读真实连通测试通过。
+
 ## 0.2.1 — 2026-09-04
 
 发布标签：`preview-0.2.1`。本次提供 Universal 2 DMG / ZIP，采用 ad-hoc 签名，尚未经过 Apple Developer ID 签名与公证。

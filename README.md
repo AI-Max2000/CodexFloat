@@ -4,15 +4,28 @@ Codex Float 是一个 macOS 14+ 原生浮窗助手。它默认只在 ChatGPT/Cod
 
 当前版本正在按公开测试版标准准备：只读，不会消耗 Reset，也不会读取 `auth.json`、聊天正文、rollout 或浏览器 Cookie。Codex Float 是独立社区项目，与 OpenAI 或 X 无隶属、授权或背书关系。
 
-最新版本：[0.2.1 更新说明](docs/releases/0.2.1.md) · [下载 DMG / ZIP](https://github.com/AI-Max2000/CodexFloat/releases/tag/preview-0.2.1)。支持 Apple Silicon / Intel，macOS 14+。这是 **未公证预览版**，不是 Apple Developer ID 正式签名版；首次打开可能被 Gatekeeper 拦截，请先阅读[安装说明](docs/releases/INSTALL-PREVIEW.txt)。历史发布保持独立保留。
+最新版本：[0.2.2 更新说明](docs/releases/0.2.2.md) · [下载 DMG / ZIP](https://github.com/AI-Max2000/CodexFloat/releases/tag/preview-0.2.2)。支持 Apple Silicon / Intel，macOS 14+。这是 **未公证预览版**，不是 Apple Developer ID 正式签名版；首次打开可能被 Gatekeeper 拦截，请先阅读[安装说明](docs/releases/INSTALL-PREVIEW.txt)。历史发布保持独立保留。
 
-## 0.2.1：位置更稳，耗尽有路
+## 0.2.2：重置文案，不再贴边
+
+![Codex Float 0.2.2 功能介绍：完整额度重置文案增加右侧安全区](docs/Images/codex-float-0.2.2-feature.png)
+
+*上图为确定性绘制的功能示意图，额度为示例，不是真实账号截图。*
+
+本版将完整额度收起态从 `174×54pt` 调整为 `188×54pt`，为中文重置次数保留 `12pt` 右侧安全区，避免文字进入圆角收束区域。高度、内容层级、展开锚点、极简进度条和菜单栏形态保持不变。
+
+| 亮色模式原生固定样本 | 深色模式原生固定样本 |
+|:---:|:---:|
+| ![亮色模式完整额度收起态](docs/Images/codex-float-0.2.2-compact-light.png) | ![深色模式完整额度收起态](docs/Images/codex-float-0.2.2-compact-dark.png) |
+
+<details>
+<summary>查看 0.2.1 的稳定锚点与额度恢复能力</summary>
 
 ![Codex Float 0.2.1 功能介绍：稳定锚点与额度恢复入口](docs/Images/codex-float-0.2.1-feature.png)
 
-*上图为生成的功能示意图，额度为示例，不是真实账号截图。*
+0.2.1 解决系统操作后浮窗位置漂移，并在周额度真正耗尽且存在可用额外重置时提供只读恢复入口。[查看完整更新说明](docs/releases/0.2.1.md)。
 
-本版解决系统操作后浮窗位置漂移：未手动摆放时优先跟随 Codex 标题，用户拖动后记住窗口相对位置，完整额度与极简进度条共享同一个左上角锚点。周额度真正耗尽且存在可用额外重置时，会显示明确、可点击的恢复入口并打开 Codex「设置 → 用量」；不会自动消耗 Reset。
+</details>
 
 <details>
 <summary>查看 0.2.0 加入的极简样式与设置界面（固定测试样本）</summary>
@@ -57,7 +70,7 @@ Codex Float 是一个 macOS 14+ 原生浮窗助手。它默认只在 ChatGPT/Cod
 
 ## 已实现
 
-- 原生 `NSPanel + SwiftUI` 浮窗支持三种显示形态：`174×54` 完整额度条、可调尺寸的极简额度组件（默认竖条 `36×54pt`），以及用竖向额度、百分比和倒计时组成的原生 macOS 菜单栏额度。前两种形态悬停后从组件原位以液态胶囊动效展开为通常 `340pt` 宽的完整浮窗：默认向右下展开，贴底向上、靠右向左；方向在本次开合期间锁定，空间不足时内部滚动。收起与展开共用同一动画进度，避让不改变组件的位置记忆；菜单栏形态悬停后在状态项下方打开完整内容。
+- 原生 `NSPanel + SwiftUI` 浮窗支持三种显示形态：`188×54pt` 完整额度条、可调尺寸的极简额度组件（默认竖条 `36×54pt`），以及用竖向额度、百分比和倒计时组成的原生 macOS 菜单栏额度。前两种形态悬停后从组件原位以液态胶囊动效展开为通常 `340pt` 宽的完整浮窗：默认向右下展开，贴底向上、靠右向左；方向在本次开合期间锁定，空间不足时内部滚动。收起与展开共用同一动画进度，避让不改变组件的位置记忆；菜单栏形态悬停后在状态项下方打开完整内容。
 - 切换到极简模式后，「设置 → 极简外观」可选择竖条、横条、圆环，并调节高度 / 长度（20–160pt）、圆环直径（20–80pt）、粗细及整体缩放（50%–200%）。支持实时预览、数值输入、各样式独立记忆及恢复默认；调节时保留组件左上角，屏幕边缘只做必要避让。双额度的横条为上 5 小时 / 下每周，圆环为外 5 小时 / 内每周，分别显示各自的剩余比例。
 - 普通与极简进度条会随剩余额度缩短，并按正常、偏低、即将用尽显示绿色、黄色、红色；进入阈值前会先逐步混色，长度与颜色均使用缓动过渡。
 - “仅 ChatGPT / Codex 在前台时显示”默认开启：切到其他应用会自动隐藏，返回后自动恢复；手动隐藏优先，不会因切回而擅自恢复。该设置可关闭。
@@ -139,10 +152,10 @@ CODEX_FLOAT_NOTARY_PROFILE="codexfloat-notary" \
 没有 Developer ID 时，可显式生成未公证预览附件（不会触发正式公证工作流）：
 
 ```bash
-CODEX_FLOAT_VERSION=0.2.1 CODEX_FLOAT_BUILD_NUMBER=2026090401 ./Scripts/package-preview.sh
+CODEX_FLOAT_VERSION=0.2.2 CODEX_FLOAT_BUILD_NUMBER=2026090403 ./Scripts/package-preview.sh
 ```
 
-输出到 `dist/preview-0.2.1/`，包含 Universal 2 DMG、ZIP、功能介绍图和 `SHA256SUMS.txt`。脚本拒绝覆盖已有版本目录；旧包不会被新包替换。正式发布使用 `v*` 标签，未公证预览使用 `preview-*` 标签，二者明确区分。
+输出到 `dist/preview-0.2.2/`，包含 Universal 2 DMG、ZIP、功能介绍图和 `SHA256SUMS.txt`。脚本拒绝覆盖已有版本目录；旧包不会被新包替换。正式发布使用 `v*` 标签，未公证预览使用 `preview-*` 标签，二者明确区分。
 
 ## GitHub 发布准备
 

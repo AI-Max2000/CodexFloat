@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1024" viewBox="0 0 1536 1024">
+  <rect width="1536" height="1024" fill="#FAF9F6"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans CJK SC', sans-serif" fill="#202527">
+    <text x="768" y="74" text-anchor="middle" font-size="24" font-weight="650" letter-spacing="2" fill="#73787B">CODEX FLOAT · 0.2.2 预览版</text>
+    <text x="768" y="176" text-anchor="middle" font-size="66" font-weight="750">重置文案，不再贴边</text>
+    <text x="768" y="234" text-anchor="middle" font-size="30" fill="#555B5E">完整额度收起态增加稳定右侧安全区，圆角内更从容</text>
+
+    <rect x="68" y="306" width="1400" height="488" rx="20" fill="#FDFCF9" stroke="#D9D8D3" stroke-width="2"/>
+    <line x1="768" y1="306" x2="768" y2="794" stroke="#DDDCD7" stroke-width="2"/>
+
+    <text x="418" y="366" text-anchor="middle" font-size="26" font-weight="700" fill="#8B665E">修复前 · 174 pt</text>
+    <text x="1118" y="366" text-anchor="middle" font-size="26" font-weight="700" fill="#4F8D4B">修复后 · 188 pt</text>
+
+    <!-- Before: the reset copy visually reaches the rounded boundary. -->
+    <rect x="166" y="422" width="503" height="156" rx="52" fill="#F0EFEC" stroke="#CAC9C5" stroke-width="2"/>
+    <circle cx="198" cy="500" r="10" fill="#38C95A"/>
+    <text x="230" y="500" font-size="41" font-weight="700">Codex</text>
+    <text x="370" y="500" font-size="29" font-weight="650">剩余 57%</text>
+    <text x="528" y="500" font-size="26" font-weight="700" fill="#29B7AD">1次重置</text>
+    <text x="230" y="548" font-size="26" font-weight="560" fill="#73787B">周 · 3天 7时</text>
+    <line x1="661" y1="442" x2="661" y2="558" stroke="#C46F63" stroke-width="3" stroke-dasharray="6 7"/>
+    <path d="M628 612 H661" fill="none" stroke="#C46F63" stroke-width="3" stroke-linecap="round"/>
+    <path d="M652 604 L661 612 L652 620" fill="none" stroke="#C46F63" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="418" y="652" text-anchor="middle" font-size="23" fill="#8B665E">长文案容易进入圆角收束区</text>
+    <text x="418" y="692" text-anchor="middle" font-size="21" fill="#73787B">两位百分比与中文重置次数同时出现时最明显</text>
+
+    <!-- After: same hierarchy with a deliberate trailing safety inset. -->
+    <rect x="843" y="422" width="543" height="156" rx="52" fill="#F0EFEC" stroke="#CAC9C5" stroke-width="2"/>
+    <circle cx="875" cy="500" r="10" fill="#38C95A"/>
+    <text x="907" y="500" font-size="41" font-weight="700">Codex</text>
+    <text x="1047" y="500" font-size="29" font-weight="650">剩余 57%</text>
+    <text x="1205" y="500" font-size="26" font-weight="700" fill="#29B7AD">1次重置</text>
+    <text x="907" y="548" font-size="26" font-weight="560" fill="#73787B">周 · 3天 7时</text>
+    <line x1="1350" y1="442" x2="1350" y2="558" stroke="#60A05A" stroke-width="3" stroke-dasharray="6 7"/>
+    <path d="M1350 612 H1382" fill="none" stroke="#60A05A" stroke-width="3" stroke-linecap="round"/>
+    <path d="M1359 604 L1350 612 L1359 620 M1373 604 L1382 612 L1373 620" fill="none" stroke="#60A05A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1366" y="644" text-anchor="middle" font-size="20" font-weight="700" fill="#4F8D4B">12 pt</text>
+    <text x="1118" y="692" text-anchor="middle" font-size="23" fill="#4F8D4B">重置文案与圆角边界保持稳定距离</text>
+    <text x="1118" y="732" text-anchor="middle" font-size="21" fill="#73787B">简体中文 · 繁体中文 · English 共用安全区</text>
+
+    <line x1="68" y1="846" x2="1468" y2="846" stroke="#DDDCD7" stroke-width="2"/>
+
+    <g transform="translate(158 882)" fill="none" stroke="#555B5E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="5" width="44" height="30" rx="14"/>
+      <path d="M37 8v24" stroke="#60A05A"/>
+    </g>
+    <text x="222" y="917" font-size="24" font-weight="620">12 pt 右侧安全区</text>
+    <line x1="466" y1="876" x2="466" y2="938" stroke="#DDDCD7"/>
+
+    <g transform="translate(526 882)" fill="none" stroke="#555B5E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 7h40M4 34h40M12 3v8M36 30v8"/>
+    </g>
+    <text x="589" y="917" font-size="24" font-weight="620">54 pt 高度不变</text>
+    <line x1="832" y1="876" x2="832" y2="938" stroke="#DDDCD7"/>
+
+    <g transform="translate(890 882)" fill="none" stroke="#555B5E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 34V7h29M4 7l9 9M4 7l9-9"/>
+    </g>
+    <text x="951" y="917" font-size="24" font-weight="620">展开锚点不变</text>
+    <line x1="1168" y1="876" x2="1168" y2="938" stroke="#DDDCD7"/>
+
+    <g transform="translate(1224 882)" fill="none" stroke="#555B5E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="21" cy="21" r="18"/>
+      <path d="M21 3a18 18 0 0 1 0 36z" fill="#60A05A" fill-opacity="0.18" stroke="#60A05A"/>
+    </g>
+    <text x="1282" y="917" font-size="24" font-weight="620">亮暗模式验证</text>
+
+    <text x="68" y="986" font-size="18" fill="#555B5E">功能示意图 · 额度为示例 · 不是真实账号截图</text>
+    <text x="1468" y="986" text-anchor="end" font-size="18" fill="#555B5E">macOS 14+ · Apple Silicon / Intel · 未公证预览版</text>
+  </g>
+</svg>

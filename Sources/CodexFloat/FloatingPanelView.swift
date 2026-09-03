@@ -42,8 +42,14 @@ enum LiquidCapsuleMotion {
 }
 
 enum FloatingPanelLayout {
-  static let collapsedWidth: CGFloat = 174
+  // The standard compact row can contain Codex, a three-digit percentage and
+  // a localized reset count at the same time. Keep enough room for that worst
+  // case so the reset action never touches the rounded clipping boundary.
+  static let collapsedWidth: CGFloat = 188
   static let collapsedHeight: CGFloat = 54
+  static let collapsedLeadingPadding: CGFloat = 8
+  static let collapsedTrailingSafetyInset: CGFloat = 12
+  static let collapsedVerticalPadding: CGFloat = 8
   static let minimalCollapsedWidth: CGFloat = 36
   static let minimalCollapsedHeight: CGFloat = 54
   static let minimalCollapsedPadding: CGFloat = 5
@@ -515,7 +521,14 @@ struct FloatingPanelView: View {
         )
     } else {
       collapsedContent
-        .padding(8)
+        .padding(
+          EdgeInsets(
+            top: FloatingPanelLayout.collapsedVerticalPadding,
+            leading: FloatingPanelLayout.collapsedLeadingPadding,
+            bottom: FloatingPanelLayout.collapsedVerticalPadding,
+            trailing: FloatingPanelLayout.collapsedTrailingSafetyInset
+          )
+        )
         .frame(
           width: FloatingPanelLayout.collapsedWidth,
           height: FloatingPanelLayout.collapsedHeight,
