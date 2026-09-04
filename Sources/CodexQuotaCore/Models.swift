@@ -207,9 +207,9 @@ public enum ActivityType: String, Codable, CaseIterable, Sendable {
 
   public var label: String {
     switch self {
-    case .globalReset: "即时重置"
-    case .bankedReset: "额外 Reset"
-    case .conditionalReset: "条件奖励"
+    case .globalReset: "官方自动重置"
+    case .bankedReset: "手动重置卡"
+    case .conditionalReset: "条件重置卡"
     case .limitChange: "额度变化"
     case .plannedActivity: "活动预告"
     case .incidentOrFix: "异常与修复"

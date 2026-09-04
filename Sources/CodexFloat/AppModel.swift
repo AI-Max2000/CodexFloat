@@ -202,6 +202,7 @@ final class AppModel: ObservableObject {
         id: "preview-tibo-\(UUID().uuidString)",
         kind: kind,
         payload: .tibo(
+          type: .bankedReset,
           audience: "全部付费用户",
           timing: .future(expectedAt),
           preview: true

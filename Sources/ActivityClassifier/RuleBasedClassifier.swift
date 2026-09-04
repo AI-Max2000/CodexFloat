@@ -7,6 +7,7 @@ public struct RuleBasedActivityClassifier: Sendable {
   public func classify(_ post: FeedPost) -> ActivityAssessment {
     let text = post.text
     let lower = text.lowercased()
+    let relativeTiming = relativeTiming(in: lower, postedAt: post.postedAt)
     let mentionsReset = containsAny(lower, ["reset", "resetting", "reseting"])
     let completedReset =
       mentionsReset
@@ -18,17 +19,23 @@ public struct RuleBasedActivityClassifier: Sendable {
         ])
     let futureLanguage =
       !completedReset
-      && containsAny(
-        lower,
-        [
-          "tomorrow", "later today", "during the day", "will reset", "will credit", "planning",
-          "plan to", "soon", "coming",
-        ])
+      && (relativeTiming != nil
+        || containsAny(
+          lower,
+          [
+            "tomorrow", "later today", "during the day", "will reset", "will credit",
+            "will arrive", "will land", "landing", "planning", "plan to", "soon", "coming",
+          ]))
     let universalAudience = containsAny(
       lower, ["all users", "all paid", "every user", "everyone", "all codex", "every codex"])
     let banked =
       mentionsReset
-      && containsAny(lower, ["banked", "reset credit", "credit every", "credited every"])
+      && containsAny(
+        lower,
+        [
+          "banked", "bank reset", "reset credit", "credit every", "credited every",
+          "use it later", "use later", "manually use",
+        ])
     let conditional =
       mentionsReset
       && containsAny(
@@ -58,8 +65,8 @@ public struct RuleBasedActivityClassifier: Sendable {
       confidence = futureLanguage ? 0.91 : 0.97
       summary =
         futureLanguage
-        ? "Tibo 宣布将发放可自行使用的额外 Reset，是否到账以本机账号变化为准。"
-        : "Tibo 宣布已发放可自行使用的额外 Reset，是否到账以本机账号变化为准。"
+        ? "Tibo 宣布将发放需要用户自行使用的手动重置卡，是否到账以本机账号变化为准。"
+        : "Tibo 宣布已发放需要用户自行使用的手动重置卡，是否到账以本机账号变化为准。"
       action = true
       verification = .unverified
     } else if conditional {
@@ -68,12 +75,15 @@ public struct RuleBasedActivityClassifier: Sendable {
       summary = "这是一项需要满足条件的 Reset 奖励；请先核对原帖条件，不代表当前账号可直接重置。"
       action = true
       verification = .unverified
-    } else if mentionsReset && universalAudience && !futureLanguage {
+    } else if mentionsReset && universalAudience {
       type = .globalReset
-      confidence = 0.96
-      summary = "Tibo 宣布面向相关用户的额度已统一重置；本机账号是否变化仍需单独验证。"
+      confidence = futureLanguage ? 0.92 : 0.96
+      summary =
+        futureLanguage
+        ? "Tibo 宣布将由官方直接统一重置额度；这不是需要手动使用的重置卡。"
+        : "Tibo 宣布已由官方直接统一重置额度；本机账号是否变化仍需单独验证。"
       action = false
-      verification = .unverified
+      verification = futureLanguage ? .announced : .unverified
     } else if mentionsReset && futureLanguage {
       type = .plannedActivity
       confidence = 0.88
@@ -100,7 +110,14 @@ public struct RuleBasedActivityClassifier: Sendable {
       verification = .announced
     }
 
-    let timing = timingAssessment(for: type, lower: lower, postedAt: post.postedAt)
+    let timing = timingAssessment(
+      for: type,
+      lower: lower,
+      postedAt: post.postedAt,
+      relativeTiming: relativeTiming,
+      completedReset: completedReset,
+      futureLanguage: futureLanguage
+    )
     return ActivityAssessment(
       postID: post.id,
       type: type,
@@ -149,11 +166,40 @@ public struct RuleBasedActivityClassifier: Sendable {
   private func timingAssessment(
     for type: ActivityType,
     lower: String,
-    postedAt: Date?
+    postedAt: Date?,
+    relativeTiming: RelativeTiming?,
+    completedReset: Bool,
+    futureLanguage: Bool
   ) -> (date: Date?, note: String) {
+    if let relativeTiming {
+      let action: String
+      switch type {
+      case .bankedReset, .conditionalReset:
+        action = "发放手动重置卡"
+      case .globalReset:
+        action = "由官方自动重置"
+      default:
+        action = "生效"
+      }
+      return (
+        relativeTiming.date,
+        "原帖称将在\(relativeTiming.description)\(action)，时间以原帖发布时间为基准推算"
+      )
+    }
+
     switch type {
     case .globalReset:
-      return (postedAt, "原帖称已经生效，仍以账号额度变化为准")
+      if futureLanguage {
+        if lower.contains("tomorrow") { return (nil, "预计明天由官方自动重置，具体时间待确认") }
+        if lower.contains("during the day") || lower.contains("later today") {
+          return (nil, "预计原帖当天由官方自动重置，具体时间待确认")
+        }
+        return (nil, "官方自动重置时间尚未明确")
+      }
+      if completedReset {
+        return (postedAt, "原帖称发布时已经由官方自动重置，仍以账号额度变化为准")
+      }
+      return (nil, "没有可确认的官方自动重置时间")
     case .bankedReset:
       if lower.contains("tomorrow") {
         return (nil, "预计明天发放，具体时间待确认")
@@ -164,7 +210,16 @@ public struct RuleBasedActivityClassifier: Sendable {
       if lower.contains("will credit") {
         return (nil, "已宣布即将发放，具体时间待确认")
       }
-      return (postedAt, "原帖称已经发放，仍以账号到账为准")
+      if containsAny(
+        lower,
+        [
+          "have credited", "we've credited", "has been credited", "now available", "has arrived",
+          "have arrived", "has landed",
+        ])
+      {
+        return (postedAt, "原帖称发布时已经发放手动重置卡，仍以账号到账为准")
+      }
+      return (nil, "手动重置卡的发放时间待确认")
     case .conditionalReset:
       return (nil, "满足原帖条件后生效，具体时间取决于完成条件的时间")
     case .plannedActivity:
@@ -182,6 +237,108 @@ public struct RuleBasedActivityClassifier: Sendable {
     case .other:
       return (nil, "没有可确认的刷新时间")
     }
+  }
+
+  private struct RelativeTiming {
+    let date: Date
+    let description: String
+  }
+
+  /// Extracts a duration stated by the author and anchors it to the original post time.
+  /// Fetch time is deliberately never used: a delayed scrape must not move the promised event.
+  private func relativeTiming(in lower: String, postedAt: Date?) -> RelativeTiming? {
+    guard let postedAt else { return nil }
+    let englishNumber =
+      #"(?:an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|[0-9]+(?:\.[0-9]+)?)"#
+    let englishUnit = #"(?:minutes?|mins?|m|hours?|hrs?|h|days?|d)"#
+    let englishPatterns = [
+      #"(?:in|within)\s+(?:(?:about|around|approximately|roughly|nearly|up to|~)\s*)?("#
+        + englishNumber + #")\s*("# + englishUnit + #")\b"#,
+      #"("# + englishNumber + #")\s*("# + englishUnit + #")\s*(?:from now|later)\b"#,
+    ]
+    for pattern in englishPatterns {
+      if let captures = firstRelevantTimingCaptures(pattern, in: lower), captures.count >= 3,
+        let amount = number(captures[1]), let seconds = seconds(for: captures[2]), amount > 0
+      {
+        return RelativeTiming(
+          date: postedAt.addingTimeInterval(amount * seconds),
+          description: relativeDescription(amount: amount, unitSeconds: seconds, in: lower)
+        )
+      }
+    }
+
+    let chinesePattern =
+      #"(?:约|約|大约|大約|大概|预计|預計)?\s*([0-9]+(?:\.[0-9]+)?)\s*(分钟|分鐘|小时|小時|天)\s*(?:之)?(?:内|內|后|後)"#
+    if let captures = firstRelevantTimingCaptures(chinesePattern, in: lower), captures.count >= 3,
+      let amount = Double(captures[1]), let seconds = seconds(for: captures[2]), amount > 0
+    {
+      return RelativeTiming(
+        date: postedAt.addingTimeInterval(amount * seconds),
+        description: relativeDescription(amount: amount, unitSeconds: seconds, in: lower)
+      )
+    }
+    return nil
+  }
+
+  private func firstRelevantTimingCaptures(_ pattern: String, in text: String) -> [String]? {
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+      return nil
+    }
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    let source = text as NSString
+    for match in regex.matches(in: text, range: range) {
+      let contextStart = max(0, match.range.location - 48)
+      let contextEnd = min(source.length, NSMaxRange(match.range) + 16)
+      let context = source.substring(
+        with: NSRange(location: contextStart, length: contextEnd - contextStart))
+      if containsAny(
+        context,
+        [
+          "expire", "expiry", "valid for", "use within", "must use", "use it within",
+          "到期", "过期", "過期", "有效期", "内使用", "內使用",
+        ])
+      {
+        continue
+      }
+      return (0..<match.numberOfRanges).map { index in
+        guard let range = Range(match.range(at: index), in: text) else { return "" }
+        return String(text[range])
+      }
+    }
+    return nil
+  }
+
+  private func number(_ value: String) -> Double? {
+    if let value = Double(value) { return value }
+    return [
+      "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+      "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+      "twelve": 12,
+    ][value]
+  }
+
+  private func seconds(for unit: String) -> TimeInterval? {
+    if unit == "m" || unit.contains("minute") || unit.hasPrefix("min") || unit.contains("分钟")
+      || unit.contains("分鐘")
+    {
+      return 60
+    }
+    if unit == "h" || unit.contains("hour") || unit.hasPrefix("hr") || unit.contains("小时")
+      || unit.contains("小時")
+    {
+      return 3_600
+    }
+    if unit == "d" || unit.contains("day") || unit == "天" { return 86_400 }
+    return nil
+  }
+
+  private func relativeDescription(amount: Double, unitSeconds: TimeInterval, in text: String) -> String {
+    let value = amount.rounded() == amount ? String(Int(amount)) : String(amount)
+    let unit = unitSeconds == 60 ? "分钟" : (unitSeconds == 3_600 ? "小时" : "天")
+    let approximate = containsAny(
+      text, ["about", "around", "approximately", "roughly", "~", "约", "約", "大概"])
+    let within = containsAny(text, ["within", "内", "內"])
+    return "\(approximate ? "约" : "")\(value)\(unit)\(within ? "内" : "后")"
   }
 }
 

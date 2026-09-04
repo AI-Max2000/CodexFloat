@@ -1,4 +1,5 @@
 import AppKit
+import CodexQuotaCore
 import Foundation
 import Testing
 
@@ -51,6 +52,24 @@ struct LocalizationTests {
     #expect(ResetForecastRefreshPolicy.interval == 300)
     #expect(simplified.text(.resetProbabilityHelp).contains("每 5 分钟"))
     #expect(simplified.format(.resetProbability48Hours, 63).contains("63%"))
+  }
+
+  @Test func tiboTimingCopyDistinguishesManualCreditsFromAutomaticResets() {
+    let strings = AppStrings(language: .simplifiedChinese)
+    let at = Date(timeIntervalSince1970: 1_788_487_920)
+    let manual = ActivityAssessment(
+      postID: "manual", type: .bankedReset, chineseSummary: "", audience: "Codex 用户",
+      effectiveAt: at, requiresAction: true, evidence: [], confidence: 0.9,
+      verification: .announced)
+    let automatic = ActivityAssessment(
+      postID: "automatic", type: .globalReset, chineseSummary: "", audience: "Codex 用户",
+      effectiveAt: at, requiresAction: false, evidence: [], confidence: 0.9,
+      verification: .announced)
+
+    #expect(strings.activityType(manual.type) == "手动重置卡")
+    #expect(strings.activityTimingLine(manual).hasPrefix("预计发放："))
+    #expect(strings.activityType(automatic.type) == "官方自动重置")
+    #expect(strings.activityTimingLine(automatic).hasPrefix("预计官方自动重置："))
   }
 }
 

@@ -130,7 +130,9 @@ enum NotificationPlanner {
     guard assessment.confidence >= 0.85, assessment.type.isResetAnnouncement else { return [] }
 
     let timing: String
-    if assessment.type == .globalReset, let effectiveAt = assessment.effectiveAt {
+    if assessment.type == .globalReset, let effectiveAt = assessment.effectiveAt,
+      effectiveAt <= now
+    {
       timing = strings.format(.timingAlreadyEffective, strings.fullDateTime(effectiveAt))
     } else if let effectiveAt = assessment.effectiveAt {
       timing = strings.fullDateTime(effectiveAt)

@@ -4,19 +4,26 @@ Codex Float 是一个 macOS 14+ 原生浮窗助手。它默认只在 ChatGPT/Cod
 
 当前版本正在按公开测试版标准准备：只读，不会消耗 Reset，也不会读取 `auth.json`、聊天正文、rollout 或浏览器 Cookie。Codex Float 是独立社区项目，与 OpenAI 或 X 无隶属、授权或背书关系。
 
-最新版本：[0.2.2 更新说明](docs/releases/0.2.2.md) · [下载 DMG / ZIP](https://github.com/AI-Max2000/CodexFloat/releases/tag/preview-0.2.2)。支持 Apple Silicon / Intel，macOS 14+。这是 **未公证预览版**，不是 Apple Developer ID 正式签名版；首次打开可能被 Gatekeeper 拦截，请先阅读[安装说明](docs/releases/INSTALL-PREVIEW.txt)。历史发布保持独立保留。
+最新版本：[0.2.3 更新说明](docs/releases/0.2.3.md) · [下载 DMG / ZIP](https://github.com/AI-Max2000/CodexFloat/releases/tag/preview-0.2.3)。支持 Apple Silicon / Intel，macOS 14+。这是 **未公证预览版**，不是 Apple Developer ID 正式签名版；首次打开可能被 Gatekeeper 拦截，请先阅读[安装说明](docs/releases/INSTALL-PREVIEW.txt)。历史发布保持独立保留。
 
-## 0.2.2：重置文案，不再贴边
+## 0.2.3：公告时间，不等于发放时间
+
+![Codex Float 0.2.3 功能介绍：逐条解析公告时间并区分手动重置卡与官方自动重置](docs/Images/codex-float-0.2.3-feature.png)
+
+*上图为确定性绘制的功能示意图，时间取自公开原帖样本，不包含账号额度、任务或聊天数据。*
+
+本版不再把帖子发布时间或抓取时间当成预计重置时间：优先从 X 帖子 ID 还原精确发布时间，再逐条解析原文中的分钟、小时或天数。公开样本 `07:12 发布 + 约 3 小时` 会显示为 `约 10:12 发放`；没有明确时间时保持“待确认”。
+
+界面同时区分需要用户自行使用的“手动重置卡”和无需操作的“官方自动重置”，浮层、活动记录、应用内反馈与通知使用对应文案。[查看完整更新说明](docs/releases/0.2.3.md)。
+
+<details>
+<summary>查看 0.2.2 的完整额度右侧安全区修复</summary>
 
 ![Codex Float 0.2.2 功能介绍：完整额度重置文案增加右侧安全区](docs/Images/codex-float-0.2.2-feature.png)
 
-*上图为确定性绘制的功能示意图，额度为示例，不是真实账号截图。*
+0.2.2 为完整额度收起态增加稳定右侧安全区，避免中文重置次数进入圆角收束区域。[查看完整更新说明](docs/releases/0.2.2.md)。
 
-本版将完整额度收起态从 `174×54pt` 调整为 `188×54pt`，为中文重置次数保留 `12pt` 右侧安全区，避免文字进入圆角收束区域。高度、内容层级、展开锚点、极简进度条和菜单栏形态保持不变。
-
-| 亮色模式原生固定样本 | 深色模式原生固定样本 |
-|:---:|:---:|
-| ![亮色模式完整额度收起态](docs/Images/codex-float-0.2.2-compact-light.png) | ![深色模式完整额度收起态](docs/Images/codex-float-0.2.2-compact-dark.png) |
+</details>
 
 <details>
 <summary>查看 0.2.1 的稳定锚点与额度恢复能力</summary>
@@ -152,10 +159,10 @@ CODEX_FLOAT_NOTARY_PROFILE="codexfloat-notary" \
 没有 Developer ID 时，可显式生成未公证预览附件（不会触发正式公证工作流）：
 
 ```bash
-CODEX_FLOAT_VERSION=0.2.2 CODEX_FLOAT_BUILD_NUMBER=2026090403 ./Scripts/package-preview.sh
+CODEX_FLOAT_VERSION=0.2.3 CODEX_FLOAT_BUILD_NUMBER=2026090407 ./Scripts/package-preview.sh
 ```
 
-输出到 `dist/preview-0.2.2/`，包含 Universal 2 DMG、ZIP、功能介绍图和 `SHA256SUMS.txt`。脚本拒绝覆盖已有版本目录；旧包不会被新包替换。正式发布使用 `v*` 标签，未公证预览使用 `preview-*` 标签，二者明确区分。
+输出到 `dist/preview-0.2.3/`，包含 Universal 2 DMG、ZIP、功能介绍图和 `SHA256SUMS.txt`。脚本拒绝覆盖已有版本目录；旧包不会被新包替换。正式发布使用 `v*` 标签，未公证预览使用 `preview-*` 标签，二者明确区分。
 
 ## GitHub 发布准备
 

@@ -109,6 +109,28 @@ struct AppFeedbackTests {
     #expect(content?.callout == "时间确认后会再次提醒你。")
   }
 
+  @Test func bankedResetFeedbackSaysManualCreditInsteadOfAutomaticReset() {
+    let now = Date(timeIntervalSince1970: 1_900_000_000)
+    let effectiveAt = now.addingTimeInterval(3 * 3_600)
+    let post = FeedPost(
+      id: "manual-credit", text: "A banked reset will arrive in 3 hours", postedAt: now,
+      originalURL: URL(string: "https://x.com/thsottiaux/status/manual-credit")!,
+      source: "fixture", fetchedAt: now)
+    let assessment = ActivityAssessment(
+      postID: post.id, type: .bankedReset, chineseSummary: "", audience: "Codex 用户",
+      effectiveAt: effectiveAt, requiresAction: true, evidence: ["banked reset"],
+      confidence: 0.92, verification: .announced)
+
+    let feedback = AppFeedbackPlanner.tiboFeedback(
+      posts: [post], assessments: [assessment], previousPostIDs: [], now: now, strings: strings)
+    let content = feedback?.localized(using: strings)
+
+    #expect(content?.title.contains("手动重置卡") == true)
+    #expect(content?.message.contains("需要你自行使用") == true)
+    #expect(content?.message.contains("不会自动重置额度") == true)
+    #expect(content?.compactTitle.contains("手动重置卡") == true)
+  }
+
   @Test func activeFeedbackRelocalizesWithoutBeingRecreated() {
     let reset = Date(timeIntervalSince1970: 2_000_000_000)
     let feedback = AppFeedbackPlanner.quotaFeedback(

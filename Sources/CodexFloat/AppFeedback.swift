@@ -16,7 +16,7 @@ enum TiboFeedbackTiming: Equatable, Sendable {
 enum AppFeedbackPayload: Equatable, Sendable {
   case recovery(QuotaRecoveryState)
   case quota(remaining: Double, refreshAt: Date?, preview: Bool)
-  case tibo(audience: String, timing: TiboFeedbackTiming, preview: Bool)
+  case tibo(type: ActivityType, audience: String, timing: TiboFeedbackTiming, preview: Bool)
 }
 
 struct LocalizedAppFeedback: Equatable, Sendable {
@@ -65,39 +65,52 @@ struct AppFeedback: Identifiable, Equatable, Sendable {
         )
       )
 
-    case .tibo(let audience, let timing, let preview):
+    case .tibo(let type, let audience, let timing, let preview):
       let localizedAudience = strings.audience(audience)
       let message: String
       let callout: String
       let compactTitle: String
       switch timing {
       case .future(let effectiveAt):
-        message = strings.format(
-          .feedbackTiboFuture,
-          localizedAudience,
-          strings.fullDateTime(effectiveAt)
-        )
-        callout = strings.text(.feedbackTiboCallout)
-        compactTitle = strings.format(
-          .feedbackMenuTiboFuture,
-          strings.shortDateTime(effectiveAt)
-        )
+        if type == .bankedReset {
+          message = strings.format(
+            .feedbackTiboManualFuture, localizedAudience, strings.fullDateTime(effectiveAt))
+          callout = strings.text(.feedbackTiboManualCallout)
+          compactTitle = strings.format(
+            .feedbackMenuTiboManualFuture, strings.shortDateTime(effectiveAt))
+        } else {
+          message = strings.format(
+            .feedbackTiboFuture, localizedAudience, strings.fullDateTime(effectiveAt))
+          callout = strings.text(.feedbackTiboCallout)
+          compactTitle = strings.format(
+            .feedbackMenuTiboFuture, strings.shortDateTime(effectiveAt))
+        }
       case .effective(let effectiveAt):
-        message = strings.format(
-          .feedbackTiboEffective,
-          localizedAudience,
-          strings.fullDateTime(effectiveAt)
-        )
-        callout = strings.text(.feedbackTiboCallout)
-        compactTitle = strings.text(.feedbackMenuTiboEffective)
+        if type == .bankedReset {
+          message = strings.format(
+            .feedbackTiboManualEffective, localizedAudience, strings.fullDateTime(effectiveAt))
+          callout = strings.text(.feedbackTiboManualCallout)
+          compactTitle = strings.text(.feedbackMenuTiboManualEffective)
+        } else {
+          message = strings.format(
+            .feedbackTiboEffective, localizedAudience, strings.fullDateTime(effectiveAt))
+          callout = strings.text(.feedbackTiboCallout)
+          compactTitle = strings.text(.feedbackMenuTiboEffective)
+        }
       case .unknown:
-        message = strings.format(.feedbackTiboUnknown, localizedAudience)
-        callout = strings.text(.feedbackTiboUnknownCallout)
-        compactTitle = strings.text(.feedbackMenuTiboUnknown)
+        if type == .bankedReset {
+          message = strings.format(.feedbackTiboManualUnknown, localizedAudience)
+          callout = strings.text(.feedbackTiboUnknownCallout)
+          compactTitle = strings.text(.feedbackMenuTiboManualUnknown)
+        } else {
+          message = strings.format(.feedbackTiboUnknown, localizedAudience)
+          callout = strings.text(.feedbackTiboUnknownCallout)
+          compactTitle = strings.text(.feedbackMenuTiboUnknown)
+        }
       }
       return LocalizedAppFeedback(
         title: prefixed(
-          strings.text(.feedbackTiboTitle),
+          "Tibo · \(strings.activityType(type))",
           preview: preview,
           strings: strings
         ),
@@ -211,6 +224,7 @@ enum AppFeedbackPlanner {
       id: "tibo-\(post.id)-\(assessment.type.rawValue)",
       kind: .tiboReset,
       payload: .tibo(
+        type: assessment.type,
         audience: assessment.audience,
         timing: timing,
         preview: false

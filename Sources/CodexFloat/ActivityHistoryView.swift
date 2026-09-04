@@ -123,12 +123,7 @@ struct ActivityHistoryView: View {
   }
 
   private func expectedResetLabel(_ assessment: ActivityAssessment) -> String {
-    let value = strings.expectedResetTime(assessment)
-    switch settings.appLanguage {
-    case .simplifiedChinese: return "预计重置：\(value)"
-    case .traditionalChinese: return "預計重置：\(value)"
-    case .english: return "Expected reset: \(value)"
-    }
+    strings.activityTimingLine(assessment)
   }
 
 }

@@ -138,11 +138,27 @@ struct FeedParserTests {
     #expect(posts.count == 1)
     #expect(posts[0].id == "2094252447271366730")
     #expect(posts[0].text == "We have now reset usage for all paid subscriptions & Codex.")
-    #expect(
-      posts[0].postedAt
-        == ISO8601DateFormatter().date(from: "2026-08-31T09:30:00Z"))
+    #expect(posts[0].postedAt == Date(timeIntervalSince1970: 1_788_143_667.415))
     #expect(
       posts[0].originalURL.absoluteString == "https://x.com/thsottiaux/status/2094252447271366730")
+  }
+
+  @Test func realBankedResetUsesSnowflakePublicationTimeAndPostRelativePromise() throws {
+    let now = Date(timeIntervalSince1970: 1_788_490_800)  // 2026-09-04 11:00 Beijing
+    let html = #"""
+      <a href="https://twiscan.com/en/x/thsottiaux/2095651088502591861">3 hours ago</a>
+      <div id="clamp-2095651088502591861-0">
+        We will give one banked reset for every day you don't have access to Astra on your paid ChatGPT plan, starting today. First one will land in ~ 3 hours.
+      </div>
+      """#
+
+    let post = try #require(TwiscanFeedSource.parse(html: html, now: now).first)
+    let exactPostTime = Date(timeIntervalSince1970: 1_788_477_129.470)
+    let assessment = RuleBasedActivityClassifier().classify(post)
+
+    #expect(post.postedAt == exactPostTime)
+    #expect(assessment.type == .bankedReset)
+    #expect(assessment.effectiveAt == exactPostTime.addingTimeInterval(3 * 3_600))
   }
 
   @Test func twiteeAstroPayloadParser() throws {
@@ -260,18 +276,115 @@ struct ActivityClassifierTests {
   @Test func ambiguousFutureResetIsNotObserved() {
     let assessment = classifier.classify(
       post(id: "planned", text: "Soon we plan to reset everyone for a celebration."))
-    #expect(assessment.type == .plannedActivity)
+    #expect(assessment.type == .globalReset)
     #expect(assessment.verification == .announced)
     #expect(assessment.effectiveAt == nil)
-    #expect(assessment.timingNote == "尚未公布具体时间")
+    #expect(assessment.timingNote == "官方自动重置时间尚未明确")
   }
 
   @Test func tomorrowMessageKeepsTimeUnverified() {
     let assessment = classifier.classify(
       post(id: "tomorrow", text: "Tomorrow we will reset usage for every Codex user."))
-    #expect(assessment.type == .plannedActivity)
+    #expect(assessment.type == .globalReset)
     #expect(assessment.effectiveAt == nil)
     #expect(assessment.timingNote?.contains("明天") == true)
+    #expect(assessment.requiresAction == false)
+  }
+
+  @Test func bankedResetRelativeTimeUsesPostTimeNotFetchTime() throws {
+    let postedAt = Date(timeIntervalSince1970: 1_788_477_120)  // 2026-09-04 07:12 Beijing
+    let fetchedAt = postedAt.addingTimeInterval(31 * 60)
+    let assessment = classifier.classify(
+      post(
+        id: "astra-banked",
+        text: "We will credit each affected paid ChatGPT plan with a BANKED reset. The first one will arrive in about 3 hours.",
+        postedAt: postedAt,
+        fetchedAt: fetchedAt
+      ))
+
+    #expect(assessment.type == .bankedReset)
+    #expect(assessment.requiresAction)
+    #expect(assessment.effectiveAt == postedAt.addingTimeInterval(3 * 3_600))
+    #expect(assessment.effectiveAt != fetchedAt.addingTimeInterval(3 * 3_600))
+    #expect(assessment.timingNote?.contains("发放手动重置卡") == true)
+  }
+
+  @Test func relativeDurationIsReadFromEachPostInsteadOfHardCoded() {
+    let postedAt = Date(timeIntervalSince1970: 1_788_478_320)
+    let twoHours = classifier.classify(
+      post(
+        id: "two-hours",
+        text: "We will credit every Codex user with a banked reset within 2 hours.",
+        postedAt: postedAt
+      ))
+    let ninetyMinutes = classifier.classify(
+      post(
+        id: "ninety-minutes",
+        text: "We will credit every Codex user with a banked reset in 90 minutes.",
+        postedAt: postedAt
+      ))
+    let shorthand = classifier.classify(
+      post(
+        id: "shorthand",
+        text: "The first BANKED reset will be landing in ~3h. Use it later.",
+        postedAt: postedAt
+      ))
+
+    #expect(twoHours.effectiveAt == postedAt.addingTimeInterval(2 * 3_600))
+    #expect(ninetyMinutes.effectiveAt == postedAt.addingTimeInterval(90 * 60))
+    #expect(shorthand.effectiveAt == postedAt.addingTimeInterval(3 * 3_600))
+  }
+
+  @Test func futureAutomaticResetIsDifferentFromManualResetCredit() {
+    let postedAt = Date(timeIntervalSince1970: 1_788_478_320)
+    let automatic = classifier.classify(
+      post(
+        id: "automatic",
+        text: "We will reset usage for every Codex user in four hours.",
+        postedAt: postedAt
+      ))
+    let manual = classifier.classify(
+      post(
+        id: "manual",
+        text: "We will credit every Codex user with a BANKED reset in four hours. Use it later.",
+        postedAt: postedAt
+      ))
+
+    #expect(automatic.type == .globalReset)
+    #expect(!automatic.requiresAction)
+    #expect(automatic.verification == .announced)
+    #expect(automatic.effectiveAt == postedAt.addingTimeInterval(4 * 3_600))
+    #expect(manual.type == .bankedReset)
+    #expect(manual.requiresAction)
+    #expect(manual.effectiveAt == postedAt.addingTimeInterval(4 * 3_600))
+  }
+
+  @Test func bankedResetWithoutTimingDoesNotUsePublicationTimeAsFallback() {
+    let postedAt = Date(timeIntervalSince1970: 1_788_478_320)
+    let assessment = classifier.classify(
+      post(
+        id: "no-timing",
+        text: "A BANKED reset is coming soon and can be used later.",
+        postedAt: postedAt
+      ))
+
+    #expect(assessment.type == .bankedReset)
+    #expect(assessment.effectiveAt == nil)
+    #expect(assessment.timingNote?.contains("待确认") == true)
+  }
+
+  @Test func expiryDurationIsNotMistakenForGrantTime() {
+    let postedAt = Date(timeIntervalSince1970: 1_788_477_120)
+    let assessment = classifier.classify(
+      post(
+        id: "expiry",
+        text: "We have credited every Codex user with a BANKED reset. It expires in 48 hours.",
+        postedAt: postedAt
+      ))
+
+    #expect(assessment.type == .bankedReset)
+    #expect(assessment.effectiveAt == postedAt)
+    #expect(assessment.timingNote?.contains("已经发放手动重置卡") == true)
   }
 
   @Test func completedResetIsNotMadeFutureByUnrelatedSoonLanguage() throws {
@@ -290,11 +403,16 @@ struct ActivityClassifierTests {
     #expect(!ActivityType.other.isResetAnnouncement)
   }
 
-  private func post(id: String, text: String) -> FeedPost {
+  private func post(
+    id: String,
+    text: String,
+    postedAt: Date = Date(),
+    fetchedAt: Date = Date()
+  ) -> FeedPost {
     FeedPost(
-      id: id, text: text, postedAt: Date(),
+      id: id, text: text, postedAt: postedAt,
       originalURL: URL(string: "https://x.com/thsottiaux/status/\(id)")!, source: "fixture",
-      fetchedAt: Date())
+      fetchedAt: fetchedAt)
   }
 }
 

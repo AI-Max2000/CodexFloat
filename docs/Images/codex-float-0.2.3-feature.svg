@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1024" viewBox="0 0 1536 1024">
+  <rect width="1536" height="1024" fill="#FAF9F6"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans CJK SC', sans-serif" fill="#202527">
+    <text x="768" y="74" text-anchor="middle" font-size="24" font-weight="650" letter-spacing="2" fill="#73787B">CODEX FLOAT · 0.2.3 预览版</text>
+    <text x="768" y="176" text-anchor="middle" font-size="64" font-weight="750">公告时间，不等于发放时间</text>
+    <text x="768" y="234" text-anchor="middle" font-size="29" fill="#555B5E">逐条读取原文语义，区分手动重置卡与官方自动重置</text>
+
+    <rect x="68" y="300" width="1400" height="500" rx="22" fill="#FDFCF9" stroke="#D9D8D3" stroke-width="2"/>
+
+    <!-- Timeline: exact publication time + duration from the post = expected event time. -->
+    <rect x="132" y="358" width="276" height="174" rx="18" fill="#F1F0EC" stroke="#D0CFCA" stroke-width="2"/>
+    <g transform="translate(168 390)" fill="none" stroke="#555B5E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="22" cy="22" r="20"/>
+      <path d="M22 10v13l9 6"/>
+    </g>
+    <text x="222" y="410" font-size="22" font-weight="650" fill="#555B5E">原帖发布</text>
+    <text x="270" y="478" text-anchor="middle" font-size="48" font-weight="760">07:12</text>
+    <text x="270" y="514" text-anchor="middle" font-size="19" fill="#73787B">从 X 帖子 ID 还原</text>
+
+    <path d="M433 445h63" fill="none" stroke="#A7A8A5" stroke-width="3" stroke-linecap="round"/>
+    <path d="M486 435l10 10-10 10" fill="none" stroke="#A7A8A5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <rect x="522" y="342" width="492" height="206" rx="18" fill="#EFF6F2" stroke="#BFD2C4" stroke-width="2"/>
+    <text x="566" y="390" font-size="21" font-weight="650" fill="#4F765A">原文时间表达</text>
+    <text x="768" y="446" text-anchor="middle" font-size="27" font-weight="650">“First one will land in ~ 3 hours.”</text>
+    <line x1="570" y1="470" x2="966" y2="470" stroke="#C9D8CD" stroke-width="2"/>
+    <text x="768" y="516" text-anchor="middle" font-size="26" font-weight="700" fill="#4F8D5B">识别为：约 3 小时后发放</text>
+
+    <path d="M1040 445h63" fill="none" stroke="#A7A8A5" stroke-width="3" stroke-linecap="round"/>
+    <path d="M1093 435l10 10-10 10" fill="none" stroke="#A7A8A5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <rect x="1128" y="358" width="276" height="174" rx="18" fill="#EAF5ED" stroke="#9FC6A7" stroke-width="2"/>
+    <g transform="translate(1164 390)" fill="none" stroke="#4F8D5B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 16h36v24H4z"/>
+      <path d="M10 16v-5h24v5M15 27h14"/>
+    </g>
+    <text x="1218" y="410" font-size="22" font-weight="650" fill="#4F765A">预计发放</text>
+    <text x="1266" y="478" text-anchor="middle" font-size="48" font-weight="760" fill="#3F7D4A">10:12</text>
+    <text x="1266" y="514" text-anchor="middle" font-size="19" fill="#5E7464">北京时间 · 约</text>
+
+    <line x1="132" y1="596" x2="1404" y2="596" stroke="#DDDCD7" stroke-width="2"/>
+
+    <g transform="translate(164 632)">
+      <rect width="356" height="112" rx="17" fill="#F4F3F0" stroke="#D6D5D0" stroke-width="2"/>
+      <g transform="translate(24 28)" fill="none" stroke="#4F8D5B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="1" y="5" width="48" height="34" rx="8"/>
+        <path d="M9 14h32M9 29h20"/>
+      </g>
+      <text x="92" y="46" font-size="25" font-weight="720">手动重置卡</text>
+      <text x="92" y="80" font-size="20" fill="#73787B">到账后由用户自行使用</text>
+    </g>
+
+    <g transform="translate(590 632)">
+      <rect width="356" height="112" rx="17" fill="#F4F3F0" stroke="#D6D5D0" stroke-width="2"/>
+      <g transform="translate(24 27)" fill="none" stroke="#63727A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M43 16A20 20 0 1 0 44 34"/>
+        <path d="M42 5v13H29"/>
+      </g>
+      <text x="92" y="46" font-size="25" font-weight="720">官方自动重置</text>
+      <text x="92" y="80" font-size="20" fill="#73787B">无需手动使用重置卡</text>
+    </g>
+
+    <g transform="translate(1016 632)">
+      <rect width="356" height="112" rx="17" fill="#F4F3F0" stroke="#D6D5D0" stroke-width="2"/>
+      <g transform="translate(25 26)" fill="none" stroke="#A47D36" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="24" cy="24" r="21"/>
+        <path d="M24 12v14M24 35h.1"/>
+      </g>
+      <text x="92" y="46" font-size="25" font-weight="720">时间未明确</text>
+      <text x="92" y="80" font-size="20" fill="#73787B">保持“待确认”，不猜时间</text>
+    </g>
+
+    <line x1="68" y1="852" x2="1468" y2="852" stroke="#DDDCD7" stroke-width="2"/>
+
+    <g transform="translate(130 884)" fill="none" stroke="#555B5E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 9h38v28H4zM11 16h24M11 24h16"/>
+    </g>
+    <text x="190" y="917" font-size="23" font-weight="620">逐条解析，不固定 3 小时</text>
+    <line x1="494" y1="878" x2="494" y2="940" stroke="#DDDCD7"/>
+
+    <g transform="translate(548 884)" fill="none" stroke="#555B5E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 35h38M12 29V14M24 29V6M36 29V20"/>
+    </g>
+    <text x="608" y="917" font-size="23" font-weight="620">分钟、小时、天均支持</text>
+    <line x1="928" y1="878" x2="928" y2="940" stroke="#DDDCD7"/>
+
+    <g transform="translate(982 884)" fill="none" stroke="#555B5E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 8h38v30H5zM12 16h24M12 25h14"/>
+      <path d="M34 31l7 7" stroke="#A47D36"/>
+    </g>
+    <text x="1042" y="917" font-size="23" font-weight="620">到期时间不会误判为发放</text>
+
+    <text x="68" y="986" font-size="18" fill="#555B5E">功能示意图 · 时间取自公开原帖样本 · 不包含账号数据</text>
+    <text x="1468" y="986" text-anchor="end" font-size="18" fill="#555B5E">macOS 14+ · Apple Silicon / Intel · 未公证预览版</text>
+  </g>
+</svg>

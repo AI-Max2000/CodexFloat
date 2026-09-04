@@ -56,6 +56,8 @@ enum LocalizedTextKey: String, CaseIterable {
   case resetCountdown, remainingQuota, recentTasks, readingTasks, openTask
   case taskIdle, taskWorking, taskError
   case noTiboResetAnnouncement, expectedReset, expectedResetTimeLine
+  case expectedManualResetGrantTimeLine, expectedAutomaticResetTimeLine
+  case automaticResetEffectiveTimeLine
   case effectiveWhenAnnounced, pendingConfirmation
   case resetProbability48Hours, resetProbabilityCalculating, resetProbabilityExpired
   case forecastConfidenceLow, forecastConfidenceMedium, forecastConfidenceHigh
@@ -87,9 +89,12 @@ enum LocalizedTextKey: String, CaseIterable {
   case timingAlreadyEffective, timingPending
   case feedbackTiboTitle, feedbackTiboFuture, feedbackTiboEffective, feedbackTiboUnknown
   case feedbackTiboCallout, feedbackTiboUnknownCallout
+  case feedbackTiboManualFuture, feedbackTiboManualEffective, feedbackTiboManualUnknown
+  case feedbackTiboManualCallout
   case feedbackQuotaLowTitle, feedbackQuotaCriticalTitle, feedbackQuotaMessage
   case feedbackQuotaLowCallout, feedbackQuotaCriticalCallout
   case feedbackMenuTiboFuture, feedbackMenuTiboEffective, feedbackMenuTiboUnknown
+  case feedbackMenuTiboManualFuture, feedbackMenuTiboManualEffective, feedbackMenuTiboManualUnknown
   case feedbackMenuQuotaLow, feedbackMenuQuotaCritical
   case feedbackPreviewPrefix, previewFeedback, previewTibo, previewLow, previewCritical
   case previewFeedbackHelp
@@ -352,10 +357,28 @@ struct AppStrings: Sendable {
   func expectedResetTime(_ assessment: ActivityAssessment) -> String {
     if let effectiveAt = assessment.effectiveAt {
       let value = zonedShortDateTime(effectiveAt)
-      if assessment.type == .globalReset { return format(.effectiveWhenAnnounced, value) }
+      if assessment.type == .globalReset, assessment.verification != .announced {
+        return format(.effectiveWhenAnnounced, value)
+      }
       return value
     }
     return text(.pendingConfirmation)
+  }
+
+  func activityTimingLine(_ assessment: ActivityAssessment) -> String {
+    let pending = text(.pendingConfirmation)
+    switch assessment.type {
+    case .bankedReset, .conditionalReset:
+      let value = assessment.effectiveAt.map(zonedShortDateTime) ?? pending
+      return format(.expectedManualResetGrantTimeLine, value)
+    case .globalReset:
+      let value = assessment.effectiveAt.map(zonedShortDateTime) ?? pending
+      return assessment.verification == .announced
+        ? format(.expectedAutomaticResetTimeLine, value)
+        : format(.automaticResetEffectiveTimeLine, value)
+    default:
+      return format(.expectedResetTimeLine, expectedResetTime(assessment))
+    }
   }
 
   func forecastConfidence(_ confidence: ResetForecastConfidence) -> String {
@@ -705,6 +728,15 @@ struct AppStrings: Sendable {
     ),
     .expectedReset: ("预计重置：%@ · %@", "預計重置：%@ · %@", "Expected reset: %@ · %@"),
     .expectedResetTimeLine: ("预计重置：%@", "預計重置：%@", "Expected reset: %@"),
+    .expectedManualResetGrantTimeLine: (
+      "预计发放：%@", "預計發放：%@", "Grant expected: %@"
+    ),
+    .expectedAutomaticResetTimeLine: (
+      "预计官方自动重置：%@", "預計官方自動重置：%@", "Automatic reset expected: %@"
+    ),
+    .automaticResetEffectiveTimeLine: (
+      "公告时已由官方自动重置：%@", "公告時已由官方自動重置：%@", "Automatically reset when announced: %@"
+    ),
     .effectiveWhenAnnounced: (
       "公告时已生效（约 %@）", "公告時已生效（約 %@）", "Effective when announced (about %@)"
     ),
@@ -746,9 +778,9 @@ struct AppStrings: Sendable {
       "这是非官方实验性预测，不是 OpenAI 承诺；工作计划仍应以当前可用额度为准。", "這是非官方實驗性預測，不是 OpenAI 承諾；工作計畫仍應以目前可用額度為準。",
       "This is an unofficial experimental forecast, not an OpenAI promise. Plan work around the quota currently available."
     ),
-    .globalReset: ("统一重置", "統一重置", "Global reset"),
-    .bankedReset: ("额外重置次数", "額外重置次數", "Extra reset"),
-    .conditionalReset: ("条件奖励", "條件獎勵", "Conditional reward"),
+    .globalReset: ("官方自动重置", "官方自動重置", "Automatic reset"),
+    .bankedReset: ("手动重置卡", "手動重置卡", "Manual reset credit"),
+    .conditionalReset: ("条件重置卡", "條件重置卡", "Conditional reset credit"),
     .limitChange: ("额度变化", "額度變化", "Limit change"),
     .plannedActivity: ("活动预告", "活動預告", "Planned activity"),
     .incidentOrFix: ("异常或修复", "異常或修復", "Incident or fix"),
@@ -764,12 +796,12 @@ struct AppStrings: Sendable {
     .audienceCodex: ("Codex 用户", "Codex 用戶", "Codex users"),
     .audienceUnknown: ("受众待确认", "對象待確認", "Audience to be confirmed"),
     .activitySummaryGlobal: (
-      "Tibo 宣布相关用户的额度已统一重置，仍需核对本机账号变化。", "Tibo 宣布相關用戶的額度已統一重置，仍需核對本機帳號變化。",
-      "Tibo announced a global quota reset for the relevant users; local account changes still need verification."
+      "Tibo 宣布由官方直接重置相关用户额度，不需要使用手动重置卡；仍需核对本机账号变化。", "Tibo 宣布由官方直接重置相關用戶額度，不需要使用手動重置卡；仍需核對本機帳號變化。",
+      "Tibo announced an automatic reset for the relevant users. No manual reset credit is needed; local account changes still need verification."
     ),
     .activitySummaryBanked: (
-      "Tibo 宣布发放可自行使用的额外重置次数，是否到账以本机账号变化为准。", "Tibo 宣布發放可自行使用的額外重置次數，是否到帳以本機帳號變化為準。",
-      "Tibo announced an extra reset you can use manually; local account changes determine whether it arrived."
+      "Tibo 宣布发放需要用户自行使用的手动重置卡；它不会自动重置额度，是否到账以本机账号变化为准。", "Tibo 宣布發放需要使用者自行使用的手動重置卡；它不會自動重置額度，是否到帳以本機帳號變化為準。",
+      "Tibo announced a manual reset credit. It does not reset quota automatically; local account changes determine whether it arrived."
     ),
     .activitySummaryConditional: (
       "这是需要满足条件的重置奖励，不代表当前账号可直接重置。", "這是需要滿足條件的重置獎勵，不代表目前帳號可直接重置。",
@@ -900,6 +932,25 @@ struct AppStrings: Sendable {
       "适用对象：%@。Tibo 已预告重置，但暂未给出明确时间。", "適用對象：%@。Tibo 已預告重置，但暫未提供明確時間。",
       "For %@. Tibo previewed a reset but has not provided an exact time."
     ),
+    .feedbackTiboManualFuture: (
+      "适用对象：%@。预计 %@ 发放手动重置卡；到账后需要你自行使用，不会自动重置额度。",
+      "適用對象：%@。預計 %@ 發放手動重置卡；到帳後需要你自行使用，不會自動重置額度。",
+      "For %@. A manual reset credit is expected at %@. You must use it yourself; it will not reset quota automatically."
+    ),
+    .feedbackTiboManualEffective: (
+      "适用对象：%@。Tibo 称手动重置卡已于 %@ 发放，正在等待本机账号验证到账。",
+      "適用對象：%@。Tibo 表示手動重置卡已於 %@ 發放，正在等待本機帳號驗證到帳。",
+      "For %@. Tibo says a manual reset credit was granted at %@; waiting for local account verification."
+    ),
+    .feedbackTiboManualUnknown: (
+      "适用对象：%@。Tibo 已宣布发放手动重置卡，但暂未给出明确时间。",
+      "適用對象：%@。Tibo 已宣布發放手動重置卡，但暫未提供明確時間。",
+      "For %@. Tibo announced a manual reset credit but has not provided an exact time."
+    ),
+    .feedbackTiboManualCallout: (
+      "到账后可在 Codex 额度页面自行使用。", "到帳後可在 Codex 額度頁面自行使用。",
+      "Use it yourself from the Codex quota page after it arrives."
+    ),
     .feedbackTiboCallout: ("请尽情吩咐 Codex 吧～", "請盡情吩咐 Codex 吧～", "Feel free to put Codex to work!"),
     .feedbackTiboUnknownCallout: (
       "时间确认后会再次提醒你。", "時間確認後會再次提醒你。", "You will be alerted again when the time is confirmed."
@@ -918,6 +969,15 @@ struct AppStrings: Sendable {
     .feedbackMenuTiboFuture: ("预计重置 · %@", "預計重置 · %@", "Reset expected · %@"),
     .feedbackMenuTiboEffective: ("Tibo 已发布重置", "Tibo 已發布重置", "Tibo reset announced"),
     .feedbackMenuTiboUnknown: ("重置时间待确认", "重置時間待確認", "Reset time pending"),
+    .feedbackMenuTiboManualFuture: (
+      "手动重置卡 · 预计 %@", "手動重置卡 · 預計 %@", "Manual reset credit · %@"
+    ),
+    .feedbackMenuTiboManualEffective: (
+      "手动重置卡已发放", "手動重置卡已發放", "Manual reset credit granted"
+    ),
+    .feedbackMenuTiboManualUnknown: (
+      "手动重置卡时间待确认", "手動重置卡時間待確認", "Manual reset credit time pending"
+    ),
     .feedbackMenuQuotaLow: ("Codex 偏低 · %@", "Codex 偏低 · %@", "Codex low · %@"),
     .feedbackMenuQuotaCritical: ("Codex 即将用尽 · %@", "Codex 即將用盡 · %@", "Codex critical · %@"),
     .feedbackPreviewPrefix: ("预览", "預覽", "Preview"),

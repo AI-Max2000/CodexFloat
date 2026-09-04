@@ -1058,12 +1058,7 @@ struct FloatingPanelView: View {
             )
             .font(.system(size: 10, weight: .semibold))
             .lineLimit(1)
-            Text(
-              strings.format(
-                .expectedResetTimeLine,
-                strings.expectedResetTime(assessment)
-              )
-            )
+            Text(strings.activityTimingLine(assessment))
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
             .lineLimit(1)

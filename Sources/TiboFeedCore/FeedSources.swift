@@ -17,6 +17,22 @@ public enum FeedError: Error, LocalizedError, Sendable {
   }
 }
 
+enum XStatusTimestamp {
+  // X status IDs are Snowflakes: the high bits contain milliseconds since this epoch.
+  private static let epochMilliseconds: UInt64 = 1_288_834_974_657
+
+  static func date(from statusID: String, now: Date) -> Date? {
+    guard let rawID = UInt64(statusID) else { return nil }
+    let timestamp = rawID >> 22
+    let (milliseconds, overflow) = timestamp.addingReportingOverflow(epochMilliseconds)
+    guard !overflow else { return nil }
+    let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000)
+    let earliestSnowflake = Date(timeIntervalSince1970: TimeInterval(epochMilliseconds) / 1_000)
+    guard date >= earliestSnowflake, date <= now.addingTimeInterval(5 * 60) else { return nil }
+    return date
+  }
+}
+
 public struct TwiscanFeedSource: FeedSource {
   public let name = "Twiscan"
   private let session: URLSession
@@ -49,7 +65,8 @@ public struct TwiscanFeedSource: FeedSource {
         FeedPost(
           id: id,
           text: text,
-          postedAt: Self.parseDateLabel(HTMLUtilities.plainText(link[2]), relativeTo: now),
+          postedAt: XStatusTimestamp.date(from: id, now: now)
+            ?? Self.parseDateLabel(HTMLUtilities.plainText(link[2]), relativeTo: now),
           originalURL: originalURL,
           source: "Twiscan",
           fetchedAt: now
@@ -113,7 +130,7 @@ public struct TwiteeFeedSource: FeedSource {
       return FeedPost(
         id: id,
         text: text,
-        postedAt: iso.date(from: match[3]),
+        postedAt: XStatusTimestamp.date(from: id, now: now) ?? iso.date(from: match[3]),
         originalURL: originalURL,
         source: "Twitee",
         fetchedAt: now
