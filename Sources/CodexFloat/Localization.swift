@@ -57,6 +57,7 @@ enum LocalizedTextKey: String, CaseIterable {
   case taskIdle, taskWorking, taskError
   case noTiboResetAnnouncement, expectedReset, expectedResetTimeLine
   case expectedManualResetGrantTimeLine, expectedAutomaticResetTimeLine
+  case localResetObservedTimeLine, localCreditObservedTimeLine, announcementTimeUnspecified
   case automaticResetEffectiveTimeLine
   case effectiveWhenAnnounced, pendingConfirmation
   case resetProbability48Hours, resetProbabilityCalculating, resetProbabilityExpired
@@ -366,6 +367,12 @@ struct AppStrings: Sendable {
   }
 
   func activityTimingLine(_ assessment: ActivityAssessment) -> String {
+    if assessment.verification == .observed, let observedAt = assessment.observedAt {
+      return format(
+        assessment.type == .globalReset ? .localResetObservedTimeLine : .localCreditObservedTimeLine,
+        zonedShortDateTime(observedAt))
+    }
+    guard assessment.effectiveAt != nil else { return text(.announcementTimeUnspecified) }
     let pending = text(.pendingConfirmation)
     switch assessment.type {
     case .bankedReset, .conditionalReset:
@@ -728,6 +735,15 @@ struct AppStrings: Sendable {
     ),
     .expectedReset: ("预计重置：%@ · %@", "預計重置：%@ · %@", "Expected reset: %@ · %@"),
     .expectedResetTimeLine: ("预计重置：%@", "預計重置：%@", "Expected reset: %@"),
+    .localResetObservedTimeLine: (
+      "本机已检测到额度重置：%@", "本機已偵測到額度重置：%@", "Quota reset detected locally: %@"
+    ),
+    .localCreditObservedTimeLine: (
+      "本机已检测到重置卡到账：%@", "本機已偵測到重置卡到帳：%@", "Reset credit received locally: %@"
+    ),
+    .announcementTimeUnspecified: (
+      "原帖未明确具体时间", "原帖未明確具體時間", "The announcement does not specify a time"
+    ),
     .expectedManualResetGrantTimeLine: (
       "预计发放：%@", "預計發放：%@", "Grant expected: %@"
     ),

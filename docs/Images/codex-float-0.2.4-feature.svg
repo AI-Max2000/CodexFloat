@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1024" viewBox="0 0 1536 1024">
+  <rect width="1536" height="1024" fill="#FAF9F6"/>
+  <g font-family="-apple-system, 'PingFang SC', sans-serif" fill="#202527">
+    <text x="768" y="96" text-anchor="middle" font-size="24" fill="#73787B" letter-spacing="2">CODEX FLOAT · 0.2.4 预览版</text>
+    <text x="768" y="210" text-anchor="middle" font-size="64" font-weight="700">重置完成，状态及时跟上</text>
+    <text x="768" y="273" text-anchor="middle" font-size="28" fill="#555B5E">补回漏识别的额度变化，保留本机确认结果</text>
+    <rect x="104" y="345" width="1328" height="376" rx="24" fill="#FDFCF9" stroke="#D9D8D3" stroke-width="2"/>
+    <circle cx="168" cy="407" r="10" fill="#60A05A"/>
+    <text x="196" y="418" font-size="30" font-weight="650">Tibo · 官方自动重置</text>
+    <text x="1368" y="418" text-anchor="end" font-size="25" fill="#4F765A">账号已观察到变化</text>
+    <line x1="160" y1="452" x2="1376" y2="452" stroke="#DDDCD7" stroke-width="2"/>
+    <text x="180" y="516" font-size="24" fill="#73787B">额度变化示例</text>
+    <text x="180" y="581" font-size="43" font-weight="650">已用 12%</text>
+    <path d="M408 565h83m-12-12 12 12-12 12" fill="none" stroke="#A7A8A5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="529" y="581" font-size="43" font-weight="650" fill="#4F8D5B">已用 0%</text>
+    <text x="180" y="637" font-size="23" fill="#555B5E">周期延后 · 手动重置次数未减少</text>
+    <line x1="803" y1="492" x2="803" y2="659" stroke="#DDDCD7" stroke-width="2"/>
+    <text x="866" y="524" font-size="28" font-weight="650">本机已检测到额度重置</text>
+    <text x="866" y="587" font-size="42" font-weight="650" fill="#4F8D5B">检测时间已记录</text>
+    <text x="866" y="638" font-size="23" fill="#555B5E">公告再次刷新，确认结果继续保留</text>
+    <g font-size="27" font-weight="650">
+      <text x="120" y="811">小幅归零也能识别</text>
+      <text x="588" y="811">重启后补回记录</text>
+      <text x="1056" y="811">公告时区正确换算</text>
+    </g>
+    <g font-size="22" fill="#73787B">
+      <text x="120" y="856">结合周期变化验证重置</text>
+      <text x="588" y="856">回看本机保留的快照</text>
+      <text x="1056" y="856">支持 PST / PDT / PT</text>
+    </g>
+    <line x1="96" y1="914" x2="1440" y2="914" stroke="#DDDCD7" stroke-width="2"/>
+    <text x="96" y="962" font-size="19" fill="#73787B">功能示意图 · 数值为虚构测试示例 · 非真实账号截图</text>
+    <text x="1440" y="962" text-anchor="end" font-size="19" fill="#73787B">macOS 14+ · Universal 2 · 未公证预览版</text>
+  </g>
+</svg>

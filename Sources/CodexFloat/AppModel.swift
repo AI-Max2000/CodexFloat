@@ -281,6 +281,11 @@ final class AppModel: ObservableObject {
       }
       posts = try await store.latestPosts()
       assessments = try await store.assessmentsByPostID()
+      let restored = correlation.reconcile(
+        posts: posts, assessments: posts.map { RuleBasedActivityClassifier().classify($0) },
+        saved: assessments, history: try await store.recentSnapshots())
+      assessments = Dictionary(uniqueKeysWithValues: restored.map { ($0.postID, $0) })
+      try await store.save(posts: posts, assessments: restored)
       feedFetchedAt = posts.map(\.fetchedAt).max()
       feedSourceName = posts.first?.source
       hasFeedBaseline = !posts.isEmpty
@@ -436,11 +441,12 @@ final class AppModel: ObservableObject {
       for post in posts where classified[post.id] == nil {
         classified[post.id] = assessments[post.id]
       }
-      var values = posts.compactMap { classified[$0.id] }
-      if let quota {
-        values = correlation.correlate(
-          posts: posts, assessments: values, previous: nil, current: quota)
-      }
+      // Read saved evidence after the await too: quota refresh can finish while
+      // the feed request is in flight.
+      let history = try await store.recentSnapshots()
+      let values = correlation.reconcile(
+        posts: posts, assessments: posts.compactMap { classified[$0.id] },
+        saved: assessments, history: history)
       assessments = Dictionary(uniqueKeysWithValues: values.map { ($0.postID, $0) })
       feedSourceName = result.sourceName
       feedFetchedAt = result.fetchedAt

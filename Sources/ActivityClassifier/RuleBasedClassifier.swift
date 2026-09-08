@@ -24,7 +24,7 @@ public struct RuleBasedActivityClassifier: Sendable {
           lower,
           [
             "tomorrow", "later today", "during the day", "will reset", "will credit",
-            "will arrive", "will land", "landing", "planning", "plan to", "soon", "coming",
+            "will arrive", "will land", "will do", "lands", "landing", "planning", "plan to", "soon", "coming",
           ]))
     let universalAudience = containsAny(
       lower, ["all users", "all paid", "every user", "everyone", "all codex", "every codex"])
@@ -132,6 +132,34 @@ public struct RuleBasedActivityClassifier: Sendable {
     )
   }
 
+  private func explicitClockTime(in text: String, postedAt: Date?) -> Date? {
+    guard let postedAt else { return nil }
+    let pattern = #"\b(?:lands?|reset(?:s|ting)?|arriv(?:e|es)|available)\s+(?:(?:at|around|about)\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s+(pst|pdt|pt|utc|gmt)\s+(today|tomorrow)\b"#
+    guard let regex = try? NSRegularExpression(pattern: pattern),
+      let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text))
+    else { return nil }
+    func group(_ index: Int) -> String {
+      Range(match.range(at: index), in: text).map { String(text[$0]) } ?? ""
+    }
+    guard let hour = Int(group(1)), (1...12).contains(hour) else { return nil }
+    let minute = Int(group(2)) ?? 0
+    guard (0...59).contains(minute) else { return nil }
+    let zone: TimeZone
+    switch group(4) {
+    case "pst": zone = TimeZone(secondsFromGMT: -8 * 3600)!
+    case "pdt": zone = TimeZone(secondsFromGMT: -7 * 3600)!
+    case "pt": zone = TimeZone(identifier: "America/Los_Angeles")!
+    default: zone = TimeZone(secondsFromGMT: 0)!
+    }
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = zone
+    let day = calendar.date(byAdding: .day, value: group(5) == "tomorrow" ? 1 : 0, to: postedAt)!
+    var components = calendar.dateComponents([.year, .month, .day], from: day)
+    components.hour = hour % 12 + (group(3) == "pm" ? 12 : 0)
+    components.minute = minute
+    return calendar.date(from: components)
+  }
+
   private func containsAny(_ text: String, _ terms: [String]) -> Bool {
     terms.contains(where: text.contains)
   }
@@ -171,6 +199,9 @@ public struct RuleBasedActivityClassifier: Sendable {
     completedReset: Bool,
     futureLanguage: Bool
   ) -> (date: Date?, note: String) {
+    if let date = explicitClockTime(in: lower, postedAt: postedAt) {
+      return (date, "按原帖明确时区及当地日期换算的预计时间，实际到账或重置以账号变化为准")
+    }
     if let relativeTiming {
       let action: String
       switch type {
@@ -345,6 +376,27 @@ public struct RuleBasedActivityClassifier: Sendable {
 public struct ActivityCorrelationEngine: Sendable {
   public init() {}
 
+  /// Feed reclassification must not erase local evidence. Replay retained snapshots
+  /// so announcements discovered after the quota event can still be verified.
+  public func reconcile(
+    posts: [FeedPost], assessments: [ActivityAssessment],
+    saved: [String: ActivityAssessment], history: [QuotaSnapshot], now: Date = Date()
+  ) -> [ActivityAssessment] {
+    var result = assessments.map { assessment in
+      var value = assessment
+      if let old = saved[value.postID], old.type == value.type, old.verification == .observed {
+        value.verification = .observed
+        value.observedAt = old.observedAt
+      }
+      return value
+    }
+    let ordered = history.sorted { $0.observedAt < $1.observedAt }
+    for (previous, current) in zip(ordered, ordered.dropFirst()) {
+      result = correlate(posts: posts, assessments: result, previous: previous, current: current, now: now)
+    }
+    return result
+  }
+
   public func correlate(
     posts: [FeedPost],
     assessments: [ActivityAssessment],
@@ -352,18 +404,20 @@ public struct ActivityCorrelationEngine: Sendable {
     current: QuotaSnapshot,
     now: Date = Date()
   ) -> [ActivityAssessment] {
-    guard let previous else { return assessments }
+    guard let previous, current.freshness == .fresh,
+      current.observedAt > previous.observedAt, previous.planType == current.planType
+    else { return assessments }
     var result = assessments
     let postByID = Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) })
 
-    let previousCredits = previous.resetCreditCount ?? previous.resetCredits.count
-    let currentCredits = current.resetCreditCount ?? current.resetCredits.count
-    if currentCredits > previousCredits,
+    if let previousCredits = previous.resetCreditCount, let currentCredits = current.resetCreditCount,
+      currentCredits > previousCredits,
       let index = newestCandidateIndex(
         types: [.bankedReset, .conditionalReset], in: result, posts: postByID,
         before: current.observedAt, maxAge: 7 * 86_400)
     {
       result[index].verification = .observed
+      result[index].observedAt = result[index].observedAt ?? current.observedAt
     }
 
     if hasUnexpectedQuotaReset(previous: previous, current: current),
@@ -372,6 +426,7 @@ public struct ActivityCorrelationEngine: Sendable {
         maxAge: 36 * 3_600)
     {
       result[index].verification = .observed
+      result[index].observedAt = result[index].observedAt ?? current.observedAt
     }
 
     for index in result.indices {
@@ -405,12 +460,20 @@ public struct ActivityCorrelationEngine: Sendable {
   }
 
   private func hasUnexpectedQuotaReset(previous: QuotaSnapshot, current: QuotaSnapshot) -> Bool {
+    // A consumed manual credit must not confirm an official automatic reset.
+    guard let oldCredits = previous.resetCreditCount, let newCredits = current.resetCreditCount,
+      newCredits >= oldCredits else { return false }
     let previousByID = Dictionary(uniqueKeysWithValues: previous.windows.map { ($0.id, $0) })
-    for window in current.windows {
-      guard let old = previousByID[window.id] else { continue }
+    for window in current.windows where window.limitID == "codex" {
+      guard let old = previousByID[window.id], old.windowDurationMinutes == window.windowDurationMinutes,
+        old.usedPercent.isFinite, window.usedPercent.isFinite else { continue }
       let naturalReset =
         old.resetsAt.map { current.observedAt >= $0.addingTimeInterval(-120) } ?? false
-      if !naturalReset && old.usedPercent - window.usedPercent >= 30 { return true }
+      let anchorAdvanced = old.resetsAt.flatMap { oldDate in
+        window.resetsAt.map { $0.timeIntervalSince(oldDate) > 120 }
+      } ?? false
+      let returnedToZero = old.usedPercent > 0 && window.usedPercent == 0 && anchorAdvanced
+      if !naturalReset && (old.usedPercent - window.usedPercent >= 30 || returnedToZero) { return true }
     }
     return false
   }

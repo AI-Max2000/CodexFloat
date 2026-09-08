@@ -253,6 +253,8 @@ public struct ActivityAssessment: Codable, Identifiable, Equatable, Sendable {
   public let evidence: [String]
   public let confidence: Double
   public var verification: VerificationState
+  /// Local observation time, distinct from the time promised in the announcement.
+  public var observedAt: Date?
 
   public init(
     postID: String,
@@ -264,7 +266,8 @@ public struct ActivityAssessment: Codable, Identifiable, Equatable, Sendable {
     requiresAction: Bool,
     evidence: [String],
     confidence: Double,
-    verification: VerificationState
+    verification: VerificationState,
+    observedAt: Date? = nil
   ) {
     self.postID = postID
     self.type = type
@@ -276,6 +279,7 @@ public struct ActivityAssessment: Codable, Identifiable, Equatable, Sendable {
     self.evidence = evidence
     self.confidence = min(1, max(0, confidence))
     self.verification = verification
+    self.observedAt = observedAt
   }
 }
 

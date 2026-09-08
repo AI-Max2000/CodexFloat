@@ -126,6 +126,11 @@ public actor SQLiteStore {
     return try decoded(QuotaSnapshot.self, from: data)
   }
 
+  public func recentSnapshots() throws -> [QuotaSnapshot] {
+    try blobRows("SELECT payload FROM quota_snapshots ORDER BY observed_at ASC, id ASC;")
+      .map { try decoded(QuotaSnapshot.self, from: $0) }
+  }
+
   public func save(posts: [FeedPost], assessments: [ActivityAssessment]) throws {
     for post in posts {
       let data = try encoded(post)

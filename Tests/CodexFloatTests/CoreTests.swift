@@ -504,6 +504,57 @@ struct ResetReminderPlannerTests {
 
 @Suite("Account correlation")
 struct CorrelationTests {
+  @Test func smallResetIsRecoveredFromHistoryAndSurvivesFeedRefresh() throws {
+    let now = Date(timeIntervalSince1970: 2_000_000)
+    let post = FeedPost(
+      id: "recovery", text: "We will do a global reset for all paid subscriptions.",
+      postedAt: now.addingTimeInterval(-3600),
+      originalURL: URL(string: "https://x.com/thsottiaux/status/1")!, source: "fixture", fetchedAt: now)
+    let classified = RuleBasedActivityClassifier().classify(post)
+    let previous = snapshot(used: 14, observed: now.addingTimeInterval(-30), resetsAt: now.addingTimeInterval(86400))
+    let current = snapshot(used: 0, observed: now, resetsAt: now.addingTimeInterval(172800))
+    let engine = ActivityCorrelationEngine()
+    let recovered = engine.reconcile(posts: [post], assessments: [classified], saved: [:], history: [previous, current], now: now)
+    #expect(recovered[0].verification == .observed)
+    #expect(recovered[0].observedAt == now)
+    let saved = try JSONDecoder().decode(ActivityAssessment.self, from: JSONEncoder().encode(recovered[0]))
+    let refreshed = engine.reconcile(posts: [post], assessments: [classified], saved: [post.id: saved], history: [current], now: now)
+    #expect(refreshed[0].verification == .observed)
+    #expect(refreshed[0].observedAt == now)
+    #expect(engine.reconcile(posts: [post], assessments: [classified], saved: [:], history: [current], now: now)[0].verification != .observed)
+  }
+
+  @Test func manualCreditConsumptionDoesNotVerifyAutomaticAnnouncement() {
+    let now = Date(timeIntervalSince1970: 2_000_000)
+    let post = FeedPost(id: "manual", text: "We will reset all users", postedAt: now.addingTimeInterval(-60), originalURL: URL(string: "https://x.com/thsottiaux/status/1")!, source: "fixture", fetchedAt: now)
+    let previous = snapshot(used: 85, observed: now.addingTimeInterval(-30), resetsAt: now.addingTimeInterval(86400), credits: 3)
+    let current = snapshot(used: 0, observed: now, resetsAt: now.addingTimeInterval(172800), credits: 2)
+    let result = ActivityCorrelationEngine().correlate(posts: [post], assessments: [RuleBasedActivityClassifier().classify(post)], previous: previous, current: current, now: now)
+    #expect(result[0].verification != .observed)
+  }
+
+  @Test func smallCorrectionOrSupplementaryResetDoesNotVerifyCodexReset() {
+    let now = Date(timeIntervalSince1970: 2_000_000)
+    let post = FeedPost(id: "correction", text: "We will reset all users", postedAt: now.addingTimeInterval(-60), originalURL: URL(string: "https://x.com/thsottiaux/status/1")!, source: "fixture", fetchedAt: now)
+    for limit in ["codex", "codex_bengalfox"] {
+      let previous = snapshot(used: 14, observed: now.addingTimeInterval(-30), resetsAt: now.addingTimeInterval(86400), limitID: limit)
+      let current = snapshot(used: 0, observed: now, resetsAt: now.addingTimeInterval(limit == "codex" ? 86400 : 172800), limitID: limit)
+      let result = ActivityCorrelationEngine().correlate(posts: [post], assessments: [RuleBasedActivityClassifier().classify(post)], previous: previous, current: current, now: now)
+      #expect(result[0].verification != .observed)
+    }
+  }
+
+  @Test func explicitAnnouncementClockUsesOriginalDayAndZone() throws {
+    let posted = try #require(ISO8601DateFormatter().date(from: "2026-09-07T19:24:57Z"))
+    for (zone, expected) in [("PST", "2026-09-08T02:00:00Z"), ("PDT", "2026-09-08T01:00:00Z"), ("PT", "2026-09-08T01:00:00Z")] {
+      let post = FeedPost(id: "clock", text: "We will do a global reset of the usage for all paid subscriptions. Lands around 6pm \(zone) today.", postedAt: posted, originalURL: URL(string: "https://x.com/thsottiaux/status/1")!, source: "fixture", fetchedAt: posted.addingTimeInterval(86400))
+      let result = RuleBasedActivityClassifier().classify(post)
+      #expect(result.type == .globalReset)
+      #expect(result.verification == .announced)
+      #expect(result.effectiveAt == ISO8601DateFormatter().date(from: expected))
+    }
+  }
+
   @Test func unexpectedUsageDropVerifiesGlobalReset() {
     let now = Date(timeIntervalSince1970: 2_000_000)
     let previous = snapshot(
@@ -538,15 +589,15 @@ struct CorrelationTests {
     #expect(result[0].verification == .unverified)
   }
 
-  private func snapshot(used: Double, observed: Date, resetsAt: Date) -> QuotaSnapshot {
+  private func snapshot(used: Double, observed: Date, resetsAt: Date, credits: Int = 0, limitID: String = "codex") -> QuotaSnapshot {
     QuotaSnapshot(
       planType: "plus",
       windows: [
         RateLimitWindow(
-          id: "codex:primary", limitID: "codex", limitName: nil, windowName: "主窗口",
+          id: "codex:primary", limitID: limitID, limitName: nil, windowName: "主窗口",
           usedPercent: used, windowDurationMinutes: 300, resetsAt: resetsAt, reachedType: nil)
       ],
-      resetCreditCount: 0,
+      resetCreditCount: credits,
       resetCredits: [],
       creditBalance: nil,
       hasCredits: nil,

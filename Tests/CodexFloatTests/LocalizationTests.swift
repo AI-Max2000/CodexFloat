@@ -71,6 +71,20 @@ struct LocalizationTests {
     #expect(strings.activityType(automatic.type) == "官方自动重置")
     #expect(strings.activityTimingLine(automatic).hasPrefix("预计官方自动重置："))
   }
+
+  @Test func observedResetDoesNotKeepPendingOrUseAnnouncementTime() {
+    let strings = AppStrings(language: .simplifiedChinese)
+    let at = Date(timeIntervalSince1970: 1_788_487_920)
+    var assessment = ActivityAssessment(
+      postID: "observed", type: .globalReset, chineseSummary: "", audience: "",
+      effectiveAt: nil, requiresAction: false, evidence: [], confidence: 0.9,
+      verification: .unverified)
+    #expect(strings.activityTimingLine(assessment) == "原帖未明确具体时间")
+    assessment.verification = .observed
+    assessment.observedAt = at
+    #expect(strings.activityTimingLine(assessment).hasPrefix("本机已检测到额度重置："))
+    #expect(!strings.activityTimingLine(assessment).contains("待确认"))
+  }
 }
 
 @Suite("Language setting")

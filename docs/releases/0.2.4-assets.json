@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "release": "preview-0.2.4",
+  "version": "0.2.4",
+  "build": "2026090802",
+  "createdOn": "2026-09-08",
+  "signing": "ad-hoc",
+  "notarized": false,
+  "architectures": ["arm64", "x86_64"],
+  "assets": [
+    {"name": "CodexFloat-0.2.4-preview-universal.dmg", "sha256": "e9759476b607244edb6cc2df7ba7602f373d0e9c294c8722a38ef612dbc107b9"},
+    {"name": "CodexFloat-0.2.4-preview-universal.zip", "sha256": "1808bf6b93aa1ba4089d3d1b999d8072a182efa53693da715426180b5136e083"},
+    {"name": "codex-float-0.2.4-feature.png", "sha256": "06dc04b77f11834e9f52aa53c2e8534c71c1ab320eefd425103f88d7872953f1"}
+  ]
+}
