@@ -145,19 +145,13 @@ enum CodexInitialPanelPlacement {
       ) as? [[String: Any]]
     else { return nil }
 
-    for window in rawWindows {
-      guard
-        (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value
-          == processIdentifier,
-        (window[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
-        let boundsDictionary = window[kCGWindowBounds as String] as? [String: Any],
-        let quartzFrame = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary),
-        quartzFrame.width >= 400,
-        quartzFrame.height >= 240
-      else { continue }
-      return appKitFrame(fromQuartzFrame: quartzFrame)
+    let windows = rawWindows.compactMap {
+      CodexWindowGeometry.window(
+        from: $0, processID: processIdentifier,
+        primaryScreenTop: NSScreen.screens.first?.frame.maxY ?? 0)
     }
-    return nil
+    return CodexWindowSelection.choose(
+      from: windows, preferred: nil, mousePoint: nil)?.frame
   }
 
   /// Reads the exact label only when Accessibility access was already granted.

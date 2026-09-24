@@ -366,9 +366,39 @@ struct QuotaRecoveryTests {
       return true
     })
     #expect(navigator.open())
-    #expect(opened.map(\.absoluteString) == ["codex://settings/usage"])
+    #expect(opened.map(\.absoluteString) == ["codex://settings"])
     #expect(opened.first?.fragment == nil)
     #expect(!ManualResetNavigator(openURL: { _ in false }).open())
+  }
+
+  @Test @MainActor func usageTabSelectionReportsPermissionAndFailuresWithoutRedeeming() async {
+    var attempts = 0
+    let failed = ManualResetNavigator(openURL: { _ in false }, selectUsageTab: {
+      attempts += 1
+      return .selectionRequested
+    })
+    #expect(await failed.openAndLocate() == .openFailed)
+    #expect(attempts == 0)
+    for result in [ManualResetNavigationResult.selectionRequested, .accessibilityRequired, .tabNotFound] {
+      var urls: [URL] = []
+      let navigator = ManualResetNavigator(openURL: { urls.append($0); return true }, selectUsageTab: { result })
+      #expect(await navigator.openAndLocate() == result)
+      #expect(urls.map(\.absoluteString) == ["codex://settings"])
+    }
+  }
+
+  @Test func usageTabMatchingRejectsContentPaneAndResetButtons() {
+    let window = CGRect(x: 100, y: 100, width: 1200, height: 900)
+    let sidebar = CGRect(x: 115, y: 700, width: 220, height: 35)
+    for label in ["使用情况和计费", "使用情況和計費", "Usage and billing", "Usage & billing"] {
+      #expect(UsageSettingsTabMatch.matches(role: "AXLink", label: label, frame: sidebar, window: window))
+      #expect(!UsageSettingsTabMatch.matches(role: "AXStaticText", label: label, frame: sidebar, window: window))
+      #expect(!UsageSettingsTabMatch.matches(role: "AXButton", label: label,
+        frame: CGRect(x: 700, y: 700, width: 220, height: 35), window: window))
+    }
+    for label in ["重置", "Reset", "确认重置", "Buy credits", "使用情况和计费说明"] {
+      #expect(!UsageSettingsTabMatch.matches(role: "AXButton", label: label, frame: sidebar, window: window))
+    }
   }
 
   @Test @MainActor func oldRecoveryActionsDoNotNavigateWithoutEligibleWeeklyQuota() throws {

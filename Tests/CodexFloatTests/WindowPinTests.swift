@@ -153,6 +153,32 @@ struct WindowPinTests {
       CodexWindowSelection.choose(from: [second, first], preferred: nil, mousePoint: nil)?.id
         == second.id)
   }
+
+  @Test func filePickerNeverReplacesItsHostWindowDuringClickOrActivation() {
+    let host = TrackedCodexWindow(
+      id: 11, processID: 100, frame: NSRect(x: 0, y: 0, width: 1_440, height: 900))
+    let picker = TrackedCodexWindow(
+      id: 12, processID: 100, frame: NSRect(x: 240, y: 120, width: 960, height: 620))
+    let clickedInPicker = NSPoint(x: 720, y: 500)
+    for preferred in [host, nil] {
+      #expect(CodexWindowSelection.choose(
+        from: [picker, host], preferred: preferred, mousePoint: clickedInPicker,
+        selectFrontWindow: true)?.id == host.id)
+      #expect(CodexWindowSelection.choose(
+        from: [picker, host], preferred: preferred, mousePoint: nil,
+        selectFrontWindow: true)?.id == host.id)
+    }
+    // When the host is briefly absent from a scan, preserve its anchor instead
+    // of treating the remaining picker as a new Codex main window.
+    #expect(CodexWindowSelection.choose(
+      from: [picker], preferred: host, mousePoint: clickedInPicker,
+      selectFrontWindow: true) == nil)
+    let otherMain = TrackedCodexWindow(
+      id: 13, processID: 100, frame: NSRect(x: 1_500, y: 0, width: 800, height: 700))
+    #expect(CodexWindowSelection.choose(
+      from: [picker, otherMain, host], preferred: host,
+      mousePoint: NSPoint(x: 1_800, y: 400), selectFrontWindow: true)?.id == otherMain.id)
+  }
 }
 
 extension FloatingPanelLayoutTests {
@@ -457,7 +483,7 @@ private final class NativeWindowGeometryFixtureSource: CodexWindowGeometrySource
     initialFrame = host.frame
   }
 
-  func discover(preferred: TrackedCodexWindow?) -> TrackedCodexWindow? {
+  func discover(preferred: TrackedCodexWindow?, selectFrontWindow: Bool) -> TrackedCodexWindow? {
     discoveryCount += 1
     discoverySamples.append(reads)
     sampleBegan = nil

@@ -66,6 +66,7 @@ final class AppModel: ObservableObject {
   private var quotaRefreshPending = false
   private var hasFeedBaseline = false
   private let resetNavigator: ManualResetNavigator
+  private var isNavigatingToUsage = false
 
   private var strings: AppStrings { AppStrings(language: settings.appLanguage) }
 
@@ -175,17 +176,28 @@ final class AppModel: ObservableObject {
   }
 
   func openCodexUsageSettings() {
-    guard resetNavigator.open() else {
-      let alert = NSAlert()
-      alert.messageText = strings.text(.openCodexUsage)
-      alert.informativeText = strings.text(.manualResetOpenFailed)
-      alert.alertStyle = .warning
-      alert.runModal()
-      return
+    guard !isNavigatingToUsage else { return }
+    isNavigatingToUsage = true
+    Task { [weak self] in
+      guard let self else { return }
+      defer { isNavigatingToUsage = false }
+      let result = await resetNavigator.openAndLocate()
+      if result != .selectionRequested {
+        let alert = NSAlert()
+        alert.messageText = strings.text(.openCodexUsage)
+        let message: LocalizedTextKey = switch result {
+        case .accessibilityRequired: .manualResetAccessibilityRequired
+        case .tabNotFound: .manualResetTabNotFound
+        default: .manualResetOpenFailed
+        }
+        alert.informativeText = strings.text(message)
+        alert.alertStyle = .warning
+        alert.runModal()
+      }
+      // Tab selection does not redeem a credit. Only subsequent quota reads
+      // establish restored quota or a reduced reset-credit count.
+      refreshAfterWakeOrShow()
     }
-    // Navigation success is not redemption success. Only a later read can
-    // establish restored quota or a reduced reset-credit count.
-    refreshAfterWakeOrShow()
   }
 
   func assessment(for post: FeedPost) -> ActivityAssessment? { assessments[post.id] }

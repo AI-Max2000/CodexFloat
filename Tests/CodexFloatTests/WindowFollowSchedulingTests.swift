@@ -156,6 +156,21 @@ struct WindowFollowSchedulingTests {
     #expect(!fixture.scheduler.isDisplayLinkPaused)
   }
 
+  @Test func missingHostRetainsItsIdentityAcrossDiscoveryRetries() {
+    let fixture = WindowFollowFixture()
+    fixture.tracker.start()
+    defer { fixture.tracker.stop() }
+    let hostID = fixture.source.window?.id
+    fixture.source.window = nil
+    fixture.scheduler.frame?()
+    fixture.time += 1.1
+    fixture.scheduler.idle?()
+    #expect(fixture.source.discoveryPreferences.last == hostID)
+    fixture.time += 1.1
+    fixture.scheduler.idle?()
+    #expect(fixture.source.discoveryPreferences.last == hostID)
+  }
+
   @Test func routineDiscoveryKeepsTheWindowIDAndExplicitSelectionMayReplaceIt() {
     let fixture = WindowFollowFixture()
     fixture.tracker.start()
@@ -165,7 +180,8 @@ struct WindowFollowSchedulingTests {
     fixture.scheduler.idle?()
     #expect(fixture.source.discoveryPreferences.last == fixture.source.window?.id)
     fixture.tracker.refresh(selectFrontWindow: true)
-    #expect(fixture.source.discoveryPreferences.last! == nil)
+    #expect(fixture.source.discoveryPreferences.last == fixture.source.window?.id)
+    #expect(fixture.source.selectionIntents.last == true)
   }
 
   @Test func stopCancelsClocksAndOldCallbacksCannotMoveThePanel() {
@@ -428,12 +444,14 @@ private final class FakeWindowGeometrySource: CodexWindowGeometrySource {
   var isMouseButtonDown = false
   var discoveryCount = 0
   var discoveryPreferences: [CGWindowID?] = []
+  var selectionIntents: [Bool] = []
   var readCount = 0
   var onRead: (() -> Void)?
 
-  func discover(preferred: TrackedCodexWindow?) -> TrackedCodexWindow? {
+  func discover(preferred: TrackedCodexWindow?, selectFrontWindow: Bool) -> TrackedCodexWindow? {
     discoveryCount += 1
     discoveryPreferences.append(preferred?.id)
+    selectionIntents.append(selectFrontWindow)
     return window
   }
 

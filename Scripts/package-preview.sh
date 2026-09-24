@@ -14,13 +14,20 @@ OUTPUT_DIR="${PROJECT_DIR}/dist/preview-${VERSION}"
 APP_DIR="${PROJECT_DIR}/dist/CodexFloat.app"
 NAME="CodexFloat-${VERSION}-preview-universal"
 IMAGE="${PROJECT_DIR}/docs/Images/codex-float-${VERSION}-feature.png"
+INCLUDE_FEATURE_IMAGE="${CODEX_FLOAT_INCLUDE_FEATURE_IMAGE:-1}"
 
 # Never replace assets already staged for a release.
 [[ ! -e "${OUTPUT_DIR}" ]] || {
   echo "Refusing to overwrite ${OUTPUT_DIR}; choose a new version." >&2
   exit 2
 }
-[[ -f "${IMAGE}" ]] || { echo "Missing versioned feature image." >&2; exit 2; }
+[[ "${INCLUDE_FEATURE_IMAGE}" == "0" || "${INCLUDE_FEATURE_IMAGE}" == "1" ]] || {
+  echo "CODEX_FLOAT_INCLUDE_FEATURE_IMAGE must be 0 or 1." >&2
+  exit 2
+}
+if [[ "${INCLUDE_FEATURE_IMAGE}" == "1" ]]; then
+  [[ -f "${IMAGE}" ]] || { echo "Missing versioned feature image." >&2; exit 2; }
+fi
 
 CODEX_FLOAT_UNIVERSAL=1 CODEX_FLOAT_SIGNING_IDENTITY=- \
   "${SCRIPT_DIR}/build-app.sh"
@@ -46,9 +53,15 @@ cp "${PROJECT_DIR}/LICENSE" "${PREVIEW_STAGE}/LICENSE.txt"
 hdiutil create -volname "Codex Float ${VERSION} Preview" \
   -srcfolder "${PREVIEW_STAGE}" -format UDZO "${OUTPUT_DIR}/${NAME}.dmg"
 ditto -c -k --sequesterRsrc --keepParent "${APP_DIR}" "${OUTPUT_DIR}/${NAME}.zip"
-cp "${IMAGE}" "${OUTPUT_DIR}/codex-float-${VERSION}-feature.png"
+if [[ "${INCLUDE_FEATURE_IMAGE}" == "1" ]]; then
+  cp "${IMAGE}" "${OUTPUT_DIR}/codex-float-${VERSION}-feature.png"
+fi
 (
   cd "${OUTPUT_DIR}"
-  shasum -a 256 "${NAME}.dmg" "${NAME}.zip" "codex-float-${VERSION}-feature.png" > SHA256SUMS.txt
+  files=("${NAME}.dmg" "${NAME}.zip")
+  if [[ "${INCLUDE_FEATURE_IMAGE}" == "1" ]]; then
+    files+=("codex-float-${VERSION}-feature.png")
+  fi
+  shasum -a 256 "${files[@]}" > SHA256SUMS.txt
 )
 echo "Unnotarized preview assets: ${OUTPUT_DIR}"
