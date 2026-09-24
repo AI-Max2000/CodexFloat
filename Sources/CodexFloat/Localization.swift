@@ -58,6 +58,7 @@ enum LocalizedTextKey: String, CaseIterable {
   case noTiboResetAnnouncement, expectedReset, expectedResetTimeLine
   case expectedManualResetGrantTimeLine, expectedAutomaticResetTimeLine
   case localResetObservedTimeLine, localCreditObservedTimeLine, announcementTimeUnspecified
+  case manualResetAccessibilityRequired, manualResetTabNotFound
   case automaticResetEffectiveTimeLine
   case effectiveWhenAnnounced, pendingConfirmation
   case resetProbability48Hours, resetProbabilityCalculating, resetProbabilityExpired
@@ -513,15 +514,25 @@ struct AppStrings: Sendable {
       "Reset availability is unknown. Check Codex usage settings."
     ),
     .goManualReset: ("去手动重置", "前往手動重置", "Go to manual reset"),
-    .openCodexUsage: ("查看用量设置", "查看用量設定", "Open usage settings"),
+    .openCodexUsage: ("使用情况和计费", "使用情況和計費", "Usage and billing"),
     .manualResetNavigationHelp: (
-      "仅打开 Codex「设置 → 用量」，请在使用量上限重置区域确认；不会自动消耗次数。", "僅開啟 Codex「設定 → 用量」，請在使用量上限重置區域確認；不會自動消耗次數。",
-      "Opens Codex Settings → Usage. Find Usage limit resets and confirm there. No reset is used automatically."
+      "打开 Codex「设置 → 使用情况和计费」，由你确认手动重置。自动选择标签页需要辅助功能权限。", "開啟 Codex「設定 → 使用情況和計費」，由你確認手動重置。自動選擇分頁需要輔助使用權限。",
+      "Opens Codex Settings → Usage and billing for you to confirm a reset. Selecting the tab automatically requires Accessibility access."
+    ),
+    .manualResetAccessibilityRequired: (
+      "已打开 Codex 设置。要自动选择「使用情况和计费」，请在系统设置 → 隐私与安全性 → 辅助功能中允许 Codex Float。你也可以直接点击 Codex 设置侧栏中的该标签页。",
+      "已開啟 Codex 設定。要自動選擇「使用情況和計費」，請在系統設定 → 隱私權與安全性 → 輔助使用中允許 Codex Float。也可以直接點擊 Codex 設定側欄中的該分頁。",
+      "Codex settings opened. To select Usage and billing automatically, allow Codex Float in System Settings → Privacy & Security → Accessibility. You can also select the tab in Codex yourself."
+    ),
+    .manualResetTabNotFound: (
+      "已打开设置，但未能自动定位标签页。请在 Codex 设置侧栏点击「使用情况和计费」。",
+      "已開啟設定，但未能自動定位分頁。請在 Codex 設定側欄點擊「使用情況和計費」。",
+      "Settings opened, but the tab could not be located automatically. Select Usage and billing in the Codex settings sidebar."
     ),
     .manualResetOpenFailed: (
-      "未能打开 Codex 用量设置。请先安装或启动 Codex，再进入「设置 → 用量 → 使用量上限重置」。",
-      "未能開啟 Codex 用量設定。請先安裝或啟動 Codex，再進入「設定 → 用量 → 使用量上限重置」。",
-      "Could not open Codex usage settings. Install or start Codex, then go to Settings → Usage → Usage limit resets."
+      "未能打开 Codex 设置。请先安装或启动 Codex，再进入「设置 → 使用情况和计费」。",
+      "未能開啟 Codex 設定。請先安裝或啟動 Codex，再進入「設定 → 使用情況和計費」。",
+      "Could not open Codex settings. Install or start Codex, then go to Settings → Usage and billing."
     ),
     .quotaExhaustedAlert: (
       "周额度耗尽且有重置次数时提醒", "週額度耗盡且有重置次數時提醒",

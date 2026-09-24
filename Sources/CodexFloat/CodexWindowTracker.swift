@@ -50,13 +50,39 @@ enum CodexWindowGeometry {
 enum CodexWindowSelection {
   static func choose(
     from windows: [TrackedCodexWindow], preferred: TrackedCodexWindow?,
-    mousePoint: NSPoint?
+    mousePoint: NSPoint?, selectFrontWindow: Bool = false
   ) -> TrackedCodexWindow? {
-    windows.first(where: {
+    let current = windows.first(where: {
       $0.id == preferred?.id && $0.processID == preferred?.processID
     })
-      ?? mousePoint.flatMap { point in windows.first(where: { $0.frame.contains(point) }) }
-      ?? windows.first
+    let wantsFrontWindow = selectFrontWindow || mousePoint != nil
+    guard wantsFrontWindow || current == nil else { return current }
+    // Open/save panels are often layer-zero windows owned by Codex itself.
+    // Their bounds overlap the main window, so frontmost order and the mouse
+    // position alone are not enough to distinguish them from a real app window.
+    let hosts = windows + (current == nil ? preferred.map { [$0] } ?? [] : [])
+    let mainWindows = windows.filter { candidate in
+      !hosts.contains { host in
+        candidate.id != host.id && candidate.processID == host.processID
+          && isTransientOverlay(candidate.frame, over: host.frame)
+      }
+    }
+    if wantsFrontWindow {
+      if let mousePoint,
+        let clicked = mainWindows.first(where: { $0.frame.contains(mousePoint) }) {
+        return clicked
+      }
+      return mainWindows.first ?? current
+    }
+    return current ?? mainWindows.first
+  }
+
+  private static func isTransientOverlay(_ candidate: NSRect, over host: NSRect) -> Bool {
+    let area = candidate.width * candidate.height
+    let hostArea = host.width * host.height
+    guard area > 0, hostArea > 0, area < hostArea * 0.82 else { return false }
+    // A macOS file picker can extend slightly beyond a narrow parent window.
+    return candidate.intersection(host).area >= area * 0.65
   }
 }
 
@@ -65,7 +91,7 @@ protocol CodexWindowGeometrySource: AnyObject {
   var isCodexFrontmost: Bool { get }
   var isMouseButtonDown: Bool { get }
   func readWindow(_ window: TrackedCodexWindow) -> TrackedCodexWindow?
-  func discover(preferred: TrackedCodexWindow?) -> TrackedCodexWindow?
+  func discover(preferred: TrackedCodexWindow?, selectFrontWindow: Bool) -> TrackedCodexWindow?
 }
 
 @MainActor
@@ -81,6 +107,7 @@ final class CodexWindowTracker {
   private var runGeneration: UInt = 0
   static let movementSettleDelay: TimeInterval = 0.12
   private var target: TrackedCodexWindow?
+  private var lastKnownTarget: TrackedCodexWindow?
   private var activeUntil: TimeInterval = -.infinity
   private var lastSampleTime: TimeInterval = -.infinity
   private var nextDiscovery: TimeInterval = 0
@@ -145,6 +172,7 @@ final class CodexWindowTracker {
     }
     lastGeometryChange = -.infinity
     target = nil
+    lastKnownTarget = nil
     activeUntil = -.infinity
     lastSampleTime = -.infinity
     nextDiscovery = 0
@@ -234,8 +262,9 @@ final class CodexWindowTracker {
       let forceDelivery = selectFrontWindow
       pendingDiscovery = false
       nextDiscovery = time + 1
-      let preferred = selectFrontWindow && source.isCodexFrontmost ? nil : target
-      let candidate = source.discover(preferred: preferred)
+      let candidate = source.discover(
+        preferred: target ?? lastKnownTarget,
+        selectFrontWindow: selectFrontWindow && source.isCodexFrontmost)
       lastSampleTime = now()
       deliver(candidate, force: forceDelivery)
     } else {
@@ -264,6 +293,7 @@ final class CodexWindowTracker {
       lastGeometryChange = now()
     }
     target = sample
+    if let sample { lastKnownTarget = sample }
     if changed, sample != nil { activateDisplayLink() }
     if sample == nil {
       scheduler.isDisplayLinkPaused = true
@@ -352,7 +382,7 @@ final class SystemCodexWindowGeometrySource: CodexWindowGeometrySource {
     }
   }
 
-  func discover(preferred: TrackedCodexWindow?) -> TrackedCodexWindow? {
+  func discover(preferred: TrackedCodexWindow?, selectFrontWindow: Bool) -> TrackedCodexWindow? {
     let applications = NSRunningApplication.runningApplications(
       withBundleIdentifier: "com.openai.codex")
     guard let app = applications.first(where: { $0.isActive }) ?? applications.first,
@@ -365,10 +395,11 @@ final class SystemCodexWindowGeometrySource: CodexWindowGeometrySource {
         from: $0, processID: app.processIdentifier,
         primaryScreenTop: NSScreen.screens.first?.frame.maxY ?? 0)
     }
-    let mousePoint = preferred == nil && isMouseButtonDown ? NSEvent.mouseLocation : nil
+    let mousePoint = selectFrontWindow && isMouseButtonDown ? NSEvent.mouseLocation : nil
     guard
       let selected = CodexWindowSelection.choose(
-        from: windows, preferred: preferred, mousePoint: mousePoint)
+        from: windows, preferred: preferred, mousePoint: mousePoint,
+        selectFrontWindow: selectFrontWindow)
     else { return nil }
     guard shouldTrackCodexLabel() else { return selected }
     return TrackedCodexWindow(

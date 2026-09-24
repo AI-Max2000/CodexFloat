@@ -4,7 +4,14 @@ Codex Float 是一个 macOS 14+ 原生浮窗助手。它默认只在 ChatGPT/Cod
 
 当前版本正在按公开测试版标准准备：只读，不会消耗 Reset，也不会读取 `auth.json`、聊天正文、rollout 或浏览器 Cookie。Codex Float 是独立社区项目，与 OpenAI 或 X 无隶属、授权或背书关系。
 
-最新版本：[0.2.4 更新说明](docs/releases/0.2.4.md) · [下载 DMG / ZIP](https://github.com/AI-Max2000/CodexFloat/releases/tag/preview-0.2.4)。支持 Apple Silicon / Intel，macOS 14+。这是 **未公证预览版**，不是 Apple Developer ID 正式签名版；首次打开可能被 Gatekeeper 拦截，请先阅读[安装说明](docs/releases/INSTALL-PREVIEW.txt)。历史发布保持独立保留。
+最新版本：[0.2.5 更新说明](docs/releases/0.2.5.md) · [下载 DMG / ZIP](https://github.com/AI-Max2000/CodexFloat/releases/tag/preview-0.2.5)。支持 Apple Silicon / Intel，macOS 14+。这是 **未公证预览版**，不是 Apple Developer ID 正式签名版；首次打开可能被 Gatekeeper 拦截，请先阅读[安装说明](docs/releases/INSTALL-PREVIEW.txt)。历史发布保持独立保留。
+
+## 0.2.5：上传文件时，额度条留在原位
+
+文件选择器打开后，极简额度条不再跟随临时窗口移动；切换到另一独立 Codex 主窗口时仍可重新定位。“去手动重置”现在尝试打开“使用情况和计费”；自动选择标签页需要允许 Codex Float 使用辅助功能，用户仍需在 Codex 内自行确认重置。[查看完整更新说明](docs/releases/0.2.5.md)。
+
+<details>
+<summary>查看 0.2.4 的重置状态修复</summary>
 
 ## 0.2.4：重置完成，状态及时跟上
 
@@ -13,6 +20,8 @@ Codex Float 是一个 macOS 14+ 原生浮窗助手。它默认只在 ChatGPT/Cod
 *图中数值为虚构测试示例，非真实账号截图。*
 
 修复较低已用量归零后仍显示“本机尚未验证”的问题；重启和公告刷新时从保留的快照补回可验证记录，并持久保存确认结果与首次检测时间。支持带 PST / PDT / PT 时区的公告时间换算。[查看完整更新说明](docs/releases/0.2.4.md)。
+
+</details>
 
 <details>
 <summary>查看 0.2.3 的公告时间与重置类型修复</summary>
@@ -90,6 +99,7 @@ Codex Float 是一个 macOS 14+ 原生浮窗助手。它默认只在 ChatGPT/Cod
 
 ## 已实现
 
+- “去手动重置”打开 Codex 设置后，在已有辅助功能权限时自动选择“使用情况和计费”标签页。没有权限或标签未找到时说明手动路径；仅选择设置标签，不操作兑换、购买或确认按钮。当前客户端不支持直接跳转到该子页的外部深链接。
 - 原生 `NSPanel + SwiftUI` 浮窗支持三种显示形态：`188×54pt` 完整额度条、可调尺寸的极简额度组件（默认竖条 `36×54pt`），以及用竖向额度、百分比和倒计时组成的原生 macOS 菜单栏额度。前两种形态悬停后从组件原位以液态胶囊动效展开为通常 `340pt` 宽的完整浮窗：默认向右下展开，贴底向上、靠右向左；方向在本次开合期间锁定，空间不足时内部滚动。收起与展开共用同一动画进度，避让不改变组件的位置记忆；菜单栏形态悬停后在状态项下方打开完整内容。
 - 切换到极简模式后，「设置 → 极简外观」可选择竖条、横条、圆环，并调节高度 / 长度（20–160pt）、圆环直径（20–80pt）、粗细及整体缩放（50%–200%）。支持实时预览、数值输入、各样式独立记忆及恢复默认；调节时保留组件左上角，屏幕边缘只做必要避让。双额度的横条为上 5 小时 / 下每周，圆环为外 5 小时 / 内每周，分别显示各自的剩余比例。
 - 普通与极简进度条会随剩余额度缩短，并按正常、偏低、即将用尽显示绿色、黄色、红色；进入阈值前会先逐步混色，长度与颜色均使用缓动过渡。
@@ -172,10 +182,10 @@ CODEX_FLOAT_NOTARY_PROFILE="codexfloat-notary" \
 没有 Developer ID 时，可显式生成未公证预览附件（不会触发正式公证工作流）：
 
 ```bash
-CODEX_FLOAT_VERSION=0.2.4 CODEX_FLOAT_BUILD_NUMBER=2026090802 ./Scripts/package-preview.sh
+CODEX_FLOAT_VERSION=0.2.5 CODEX_FLOAT_BUILD_NUMBER=2026092501 CODEX_FLOAT_INCLUDE_FEATURE_IMAGE=0 ./Scripts/package-preview.sh
 ```
 
-输出到 `dist/preview-0.2.4/`，包含 Universal 2 DMG、ZIP、功能介绍图和 `SHA256SUMS.txt`。脚本拒绝覆盖已有版本目录；旧包不会被新包替换。正式发布使用 `v*` 标签，未公证预览使用 `preview-*` 标签，二者明确区分。
+输出到 `dist/preview-0.2.5/`，包含 Universal 2 DMG、ZIP 和 `SHA256SUMS.txt`。设置 `CODEX_FLOAT_INCLUDE_FEATURE_IMAGE=0` 时无需制作或上传版本介绍图；默认仍沿用旧版的配图打包流程。脚本拒绝覆盖已有版本目录；旧包不会被新包替换。正式发布使用 `v*` 标签，未公证预览使用 `preview-*` 标签，二者明确区分。
 
 ## GitHub 发布准备
 
