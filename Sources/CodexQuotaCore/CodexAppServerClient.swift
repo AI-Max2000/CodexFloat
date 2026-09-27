@@ -27,7 +27,9 @@ public actor CodexAppServerClient: QuotaSource {
   }
 
   private let executableURL: URL?
+  private let executableLocator: @Sendable () -> URL?
   private var process: Process?
+  private var connectionID: UUID?
   private var inputHandle: FileHandle?
   private var outputBuffer = Data()
   private var pending: [Int64: PendingRequest] = [:]
@@ -35,8 +37,12 @@ public actor CodexAppServerClient: QuotaSource {
   private var isInitialized = false
   private var rateLimitUpdatedHandler: (@Sendable () -> Void)?
 
-  public init(executableURL: URL? = CodexExecutableLocator.locate()) {
+  public init(
+    executableURL: URL? = nil,
+    executableLocator: @escaping @Sendable () -> URL? = { CodexExecutableLocator.locate() }
+  ) {
     self.executableURL = executableURL
+    self.executableLocator = executableLocator
   }
 
   public func setRateLimitUpdatedHandler(_ handler: (@Sendable () -> Void)?) {
@@ -71,6 +77,7 @@ public actor CodexAppServerClient: QuotaSource {
   }
 
   public func stop() {
+    connectionID = nil
     guard let process else { return }
     (process.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
     (process.standardError as? Pipe)?.fileHandleForReading.readabilityHandler = nil
@@ -86,7 +93,14 @@ public actor CodexAppServerClient: QuotaSource {
   private func ensureStarted() async throws {
     if process?.isRunning == true, isInitialized { return }
     stop()
-    guard let executableURL else { throw AppServerError.codexNotFound }
+    // Discover on every new connection, not once at client initialization. This
+    // also recovers on the next refresh after an app update or late installation.
+    guard let executableURL = executableURL ?? executableLocator() else {
+      throw AppServerError.codexNotFound
+    }
+    outputBuffer.removeAll(keepingCapacity: true)
+    let connectionID = UUID()
+    self.connectionID = connectionID
 
     let process = Process()
     let input = Pipe()
@@ -100,13 +114,13 @@ public actor CodexAppServerClient: QuotaSource {
 
     output.fileHandleForReading.readabilityHandler = { [weak self] handle in
       let data = handle.availableData
-      Task { await self?.receive(data) }
+      Task { await self?.receive(data, connectionID: connectionID) }
     }
     error.fileHandleForReading.readabilityHandler = { handle in
       _ = handle.availableData
     }
     process.terminationHandler = { [weak self] _ in
-      Task { await self?.didTerminate() }
+      Task { await self?.didTerminate(connectionID: connectionID) }
     }
 
     do { try process.run() } catch { throw AppServerError.launchFailed(error.localizedDescription) }
@@ -157,7 +171,8 @@ public actor CodexAppServerClient: QuotaSource {
     }
   }
 
-  private func receive(_ data: Data) {
+  private func receive(_ data: Data, connectionID: UUID) {
+    guard self.connectionID == connectionID else { return }
     guard !data.isEmpty else {
       failPending(with: AppServerError.disconnected)
       return
@@ -195,7 +210,9 @@ public actor CodexAppServerClient: QuotaSource {
     request.continuation.resume(throwing: AppServerError.timeout(method))
   }
 
-  private func didTerminate() {
+  private func didTerminate(connectionID: UUID) {
+    guard self.connectionID == connectionID else { return }
+    self.connectionID = nil
     process = nil
     inputHandle = nil
     isInitialized = false

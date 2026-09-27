@@ -4,7 +4,8 @@ All notable changes to Codex Float will be documented in this file.
 
 ## Unreleased
 
-暂无新的未发布变更。
+- 修复新版 Codex 内置 CLI 目录变更导致额度刷新失败：通过应用标识发现实际安装位置，兼容新旧目录，并在应用资源目录内有界查找 CLI；保留独立 CLI / PATH 兜底。
+- CLI 不再只在启动时查找一次：首次未找到、应用更新或连接失效后，下次连接会重新发现路径，无需重启 Codex Float。此机制不能替代未安装 CLI、登录失效或接口不兼容时的错误提示。
 
 ## 0.2.5 — 2026-09-25
 
