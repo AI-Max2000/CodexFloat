@@ -176,6 +176,7 @@ public struct ResetForecastSnapshot: Codable, Equatable, Sendable {
 }
 
 public protocol ResetForecastSource: Sendable {
+  var sourceURL: URL { get }
   func fetch() async throws -> ResetForecastSnapshot
 }
 
@@ -183,17 +184,20 @@ public enum ResetForecastError: Error, LocalizedError, Sendable {
   case invalidResponse(String)
   case httpStatus(String, Int)
   case invalidPayload(String)
+  case staleData(String)
 
   public var errorDescription: String? {
     switch self {
     case .invalidResponse(let source): "\(source) 返回了无效响应"
     case .httpStatus(let source, let status): "\(source) HTTP \(status)"
     case .invalidPayload(let source): "\(source) 数据结构无法识别"
+    case .staleData(let source): "\(source) 预测数据已过期或时间无效"
     }
   }
 }
 
 public struct PublicResetForecastSource: ResetForecastSource {
+  public var sourceURL: URL { URL(string: "https://codex-reset.com/tibo")! }
   private let session: URLSession
   private let forecastURL: URL
   private let timelineURL: URL
@@ -210,12 +214,20 @@ public struct PublicResetForecastSource: ResetForecastSource {
 
   public func fetch() async throws -> ResetForecastSnapshot {
     async let forecastData = loadJSON(from: forecastURL, source: "Reset Forecast")
-    async let timelineData = loadJSON(from: timelineURL, source: "Reset Timeline")
+    async let timelineData = loadOptionalTimeline()
     return try await Self.parse(
       forecastData: forecastData,
       timelineData: timelineData,
       fetchedAt: Date()
     )
+  }
+
+  private func loadOptionalTimeline() async -> Data {
+    // A missing auxiliary milestone feed must not disable a valid probability.
+    guard let data = try? await loadJSON(from: timelineURL, source: "Reset Timeline"),
+      (try? JSONDecoder().decode(TimelineEnvelope.self, from: data)) != nil
+    else { return Data(#"{"milestones":[]}"#.utf8) }
+    return data
   }
 
   static func parse(
@@ -272,7 +284,9 @@ public struct PublicResetForecastSource: ResetForecastSource {
     guard (200..<300).contains(http.statusCode) else {
       throw ResetForecastError.httpStatus(source, http.statusCode)
     }
-    guard !data.isEmpty else { throw ResetForecastError.invalidResponse(source) }
+    guard http.url?.host == url.host, http.mimeType == "application/json",
+      !data.isEmpty, data.count <= 1_500_000
+    else { throw ResetForecastError.invalidResponse(source) }
     return data
   }
 

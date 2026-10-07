@@ -66,7 +66,13 @@ enum LocalizedTextKey: String, CaseIterable {
   case forecastConfidenceUnavailable, forecastCadence, forecastLatestMilestone
   case forecastNextMillion, forecastNextMajorMilestone, forecastMillionPromiseActive
   case forecastMillionPromiseEnded, forecastNoMilestone, forecastUpdatedAt
-  case forecastDisclaimer
+  case forecastDisclaimer, forecastSource, forecastMonitorSummary, forecastMonitorEvidence
+  case forecastAutomaticResetScope
+  case forecastPoolSummary, forecastPoolCached, forecastPoolUnavailable
+  case forecastPoolPreferred, forecastPoolFallback, forecastPoolPolicy, forecastSourceHealth
+  case forecastStatusPending, forecastStatusHealthy, forecastStatusUnavailable
+  case forecastStatusQuarantined, forecastStatusRecovering
+  case forecastIssueNetwork, forecastIssueStale, forecastIssueInvalid, forecastIssueMissedReset
   case globalReset, bankedReset, conditionalReset, limitChange, plannedActivity, incidentOrFix,
     other
   case announced, observed, unverified, expired
@@ -398,9 +404,16 @@ struct AppStrings: Sendable {
     }
   }
 
-  func resetForecastSummary(_ forecast: ResetForecastSnapshot, now: Date) -> String {
+  func resetForecastSummary(_ forecast: ResetForecastSnapshot, now: Date,
+                            pool: ResetForecastPoolReport? = nil) -> String {
     guard forecast.availableProbability48Hours(at: now) != nil else {
       return text(.resetProbabilityExpired)
+    }
+    if let pool {
+      return text(pool.selection == .cached ? .forecastPoolCached : .forecastPoolSummary)
+    }
+    if forecast.sourceURL == MonitorResetForecastSource.homepageURL {
+      return text(.forecastMonitorSummary)
     }
     var parts = [forecastConfidence(forecast.confidence)]
     if let recent = forecast.recentMedianDays {
@@ -419,6 +432,11 @@ struct AppStrings: Sendable {
     } else {
       lines.append(text(.resetProbabilityExpired))
     }
+    lines.append(format(.forecastSource, forecast.sourceURL.host ?? forecast.sourceURL.absoluteString))
+    if forecast.sourceURL == MonitorResetForecastSource.homepageURL {
+      lines.append(text(.forecastMonitorEvidence))
+    }
+    lines.append(text(.forecastAutomaticResetScope))
     if let recent = forecast.recentMedianDays {
       lines.append(format(.forecastCadence, decimal(recent)))
     }
@@ -447,11 +465,45 @@ struct AppStrings: Sendable {
           milestone.oneMillionResetPromiseStillApplies
             ? .forecastMillionPromiseActive : .forecastMillionPromiseEnded
         ))
-    } else {
+    } else if forecast.sourceURL != MonitorResetForecastSource.homepageURL {
       lines.append(text(.forecastNoMilestone))
     }
     lines.append(format(.forecastUpdatedAt, zonedShortDateTime(forecast.sourceUpdatedAt)))
     lines.append(text(.forecastDisclaimer))
+    return lines.joined(separator: "\n")
+  }
+
+  func resetForecastPoolHelp(_ report: ResetForecastPoolReport) -> String {
+    let selectionKey: LocalizedTextKey
+    switch report.selection {
+    case .preferred: selectionKey = .forecastPoolPreferred
+    case .failover: selectionKey = .forecastPoolFallback
+    case .cached: selectionKey = .forecastPoolCached
+    case .unavailable: selectionKey = .forecastPoolUnavailable
+    }
+    var lines = [text(selectionKey), text(.forecastPoolPolicy)]
+    for source in report.sources {
+      let statusKey: LocalizedTextKey
+      switch source.status {
+      case .pending: statusKey = .forecastStatusPending
+      case .healthy: statusKey = .forecastStatusHealthy
+      case .unavailable: statusKey = .forecastStatusUnavailable
+      case .quarantined: statusKey = .forecastStatusQuarantined
+      case .recovering: statusKey = .forecastStatusRecovering
+      }
+      var status = text(statusKey)
+      if let issue = source.issue {
+        let key: LocalizedTextKey
+        switch issue {
+        case .network: key = .forecastIssueNetwork
+        case .stale: key = .forecastIssueStale
+        case .invalid: key = .forecastIssueInvalid
+        case .missedReset: key = .forecastIssueMissedReset
+        }
+        status += " · " + text(key)
+      }
+      lines.append(format(.forecastSourceHealth, source.name, status))
+    }
     return lines.joined(separator: "\n")
   }
 
@@ -698,9 +750,9 @@ struct AppStrings: Sendable {
     ),
     .resetProbabilityToggle: ("显示未来 48 小时重置概率", "顯示未來 48 小時重置機率", "Show 48-hour reset probability"),
     .resetProbabilityHelp: (
-      "每 5 分钟自动获取最新预测，并结合近期重置节奏、Tibo 明确信号、数据新鲜度和用户里程碑。用户增长只作证据：“每增加 100 万就重置”的公开承诺已在 1000 万时结束。",
-      "每 5 分鐘自動取得最新預測，並結合近期重置節奏、Tibo 明確訊號、資料新鮮度與用戶里程碑。用戶成長只作證據：「每增加 100 萬就重置」的公開承諾已在 1000 萬時結束。",
-      "Fetches the latest forecast every 5 minutes and combines recent reset cadence, explicit Tibo signals, source freshness, and user milestones. Growth is evidence only: the public every-1M promise ended at 10M users."
+      "每 5 分钟获取历史共同样本中表现较好的 codexreset.org 预测。仅预测官方统一自动重置，不包含手动重置卡或个人周期恢复；历史表现不保证未来准确，数据超过 6 小时不再显示数字。",
+      "每 5 分鐘取得歷史共同樣本中表現較好的 codexreset.org 預測。僅預測官方統一自動重置，不包含手動重置卡或個人週期恢復；歷史表現不保證未來準確，資料超過 6 小時不再顯示數字。",
+      "Fetches codexreset.org every 5 minutes, selected by a shared historical benchmark. Predicts broad automatic resets, not manual credits or personal quota recovery. Past performance is not a guarantee; values expire after 6 hours."
     ),
     .privacySection: ("隐私与诊断", "隱私與診斷", "Privacy and diagnostics"),
     .privacyHelp: (
@@ -771,7 +823,7 @@ struct AppStrings: Sendable {
     .resetProbability48Hours: (
       "未来 48 小时重置概率 %d%%", "未來 48 小時重置機率 %d%%", "%d%% reset probability in the next 48 hours"
     ),
-    .resetProbabilityCalculating: ("正在计算重置概率…", "正在計算重置機率…", "Calculating reset probability…"),
+    .resetProbabilityCalculating: ("正在获取重置预测…", "正在取得重置預測…", "Fetching reset forecast…"),
     .resetProbabilityExpired: (
       "预测数据已过期，等待刷新", "預測資料已過期，等待更新", "Forecast expired; waiting for refresh"
     ),
@@ -801,6 +853,53 @@ struct AppStrings: Sendable {
       "暂无可验证的用户里程碑数据。", "暫無可驗證的用戶里程碑資料。", "No verifiable user-milestone data is available."
     ),
     .forecastUpdatedAt: ("预测数据更新于 %@", "預測資料更新於 %@", "Forecast data updated %@"),
+    .forecastSource: ("预测来源：%@", "預測來源：%@", "Forecast source: %@"),
+    .forecastMonitorSummary: (
+      "历史样本较优 · 仅供参考", "歷史樣本較佳 · 僅供參考", "Historical benchmark pick · Experimental"
+    ),
+    .forecastMonitorEvidence: (
+      "选源依据：2026年8月14日至9月5日的 81 个共同预测时点，概率误差约 0.219，原来源约 0.268，越低越好。结果核验截至9月7日；样本窗口重叠，不代表未来准确率。",
+      "選源依據：2026年8月14日至9月5日的 81 個共同預測時點，機率誤差約 0.219，原來源約 0.268，越低越好。結果核驗截至9月7日；樣本窗口重疊，不代表未來準確率。",
+      "Selection: 81 common checkpoints, Aug 14–Sep 5, 2026; Brier error 0.219 vs 0.268 for the previous source (lower is better). Outcomes reviewed through Sep 7. Windows overlap; this is not future accuracy."
+    ),
+    .forecastAutomaticResetScope: (
+      "预测官方统一自动重置；不包含手动重置卡发放、每周或 5 小时额度自然恢复。",
+      "預測官方統一自動重置；不包含手動重置卡發放、每週或 5 小時額度自然恢復。",
+      "Broad automatic resets only; excludes banked reset grants and personal weekly or 5-hour recovery."
+    ),
+    .forecastPoolSummary: (
+      "多源自动选优 · 实验性预测", "多源自動選優 · 實驗性預測", "Automatic source selection · Experimental"
+    ),
+    .forecastPoolCached: (
+      "暂用有效缓存 · 等待来源恢复", "暫用有效快取 · 等待來源恢復", "Using valid cached data · Awaiting recovery"
+    ),
+    .forecastPoolUnavailable: (
+      "预测暂不可用，等待来源恢复", "預測暫不可用，等待來源恢復", "Forecast unavailable; awaiting source recovery"
+    ),
+    .forecastPoolPreferred: (
+      "当前采用历史共同样本较优的首选来源。", "目前採用歷史共同樣本較佳的首選來源。",
+      "Using the preferred source from the common historical benchmark."
+    ),
+    .forecastPoolFallback: (
+      "已切换至有效备用来源；健康时保持当前来源，避免反复跳变。",
+      "已切換至有效備用來源；健康時保持目前來源，避免反覆跳變。",
+      "Using a valid fallback; retaining it while healthy to avoid source flapping."
+    ),
+    .forecastPoolPolicy: (
+      "后台每 5 分钟检查；失效来源隔离后低频探测，连续两次通过才恢复候选。不混算各站概率，也不因数值未变判定过期。多源提高可用性，不保证更准确。",
+      "背景每 5 分鐘檢查；失效來源隔離後低頻探測，連續兩次通過才恢復候選。不混算各站機率，也不因數值未變判定過期。多源提高可用性，不保證更準確。",
+      "Checks every 5 minutes; isolated sources get slower probes and need two successful checks to recover. No averaging, and an unchanged number is not stale. Multiple sources improve availability, not guaranteed accuracy."
+    ),
+    .forecastSourceHealth: ("%@：%@", "%@：%@", "%@: %@"),
+    .forecastStatusPending: ("尚未检查", "尚未檢查", "Not checked"),
+    .forecastStatusHealthy: ("可用", "可用", "Healthy"),
+    .forecastStatusUnavailable: ("暂不可用", "暫不可用", "Unavailable"),
+    .forecastStatusQuarantined: ("已隔离", "已隔離", "Isolated"),
+    .forecastStatusRecovering: ("恢复验证中", "恢復驗證中", "Recovery validation"),
+    .forecastIssueNetwork: ("连接失败", "連線失敗", "Connection failed"),
+    .forecastIssueStale: ("预测已过期", "預測已過期", "Forecast expired"),
+    .forecastIssueInvalid: ("数据或预测口径不符", "資料或預測口徑不符", "Invalid data or target"),
+    .forecastIssueMissedReset: ("未跟进已交叉核对的重置", "未跟進已交叉核對的重置", "Missed a cross-checked reset"),
     .forecastDisclaimer: (
       "这是非官方实验性预测，不是 OpenAI 承诺；工作计划仍应以当前可用额度为准。", "這是非官方實驗性預測，不是 OpenAI 承諾；工作計畫仍應以目前可用額度為準。",
       "This is an unofficial experimental forecast, not an OpenAI promise. Plan work around the quota currently available."
