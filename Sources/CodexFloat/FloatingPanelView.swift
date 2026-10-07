@@ -1010,7 +1010,7 @@ struct FloatingPanelView: View {
                   .font(.system(size: 10, weight: .semibold))
                   .foregroundStyle(.orange)
               }
-              Text(strings.resetForecastSummary(forecast, now: context.date))
+              Text(strings.resetForecastSummary(forecast, now: context.date, pool: model.resetForecastPoolReport))
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -1038,6 +1038,7 @@ struct FloatingPanelView: View {
         .lineLimit(1)
         Spacer(minLength: 0)
       }
+      .help(model.resetForecastPoolReport.map { strings.resetForecastPoolHelp($0) } ?? "")
     }
   }
 
@@ -1118,9 +1119,10 @@ struct FloatingPanelView: View {
   }
 
   private func resetForecastHelp(_ forecast: ResetForecastSnapshot, now: Date) -> String {
-    let base = strings.resetForecastHelp(forecast, now: now)
-    guard let error = model.resetForecastError else { return base }
-    return "\(base)\n\(error)"
+    var lines = [strings.resetForecastHelp(forecast, now: now)]
+    if let report = model.resetForecastPoolReport { lines.append(strings.resetForecastPoolHelp(report)) }
+    if let error = model.resetForecastError { lines.append(error) }
+    return lines.joined(separator: "\n")
   }
 
   private func taskColor(_ status: CodexTaskStatus) -> Color {

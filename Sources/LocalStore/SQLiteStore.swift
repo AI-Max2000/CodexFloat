@@ -91,6 +91,10 @@ public actor SQLiteStore {
             source_updated_at REAL NOT NULL,
             payload BLOB NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS reset_forecast_pool (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            payload BLOB NOT NULL
+        );
         """)
     try Self.execute(
       handle,
@@ -179,13 +183,29 @@ public actor SQLiteStore {
     )
   }
 
-  public func latestResetForecast() throws -> ResetForecastSnapshot? {
-    guard
-      let data = try firstBlob(
-        "SELECT payload FROM reset_forecasts ORDER BY source_updated_at DESC, id DESC LIMIT 1;"
-      )
+  public func latestResetForecast(sourceURL: URL? = nil) throws -> ResetForecastSnapshot? {
+    // Keep source provenance when switching providers. A newer forecast from
+    // the previous provider must not win over the selected provider's cache.
+    for data in try blobRows(
+      "SELECT payload FROM reset_forecasts ORDER BY source_updated_at DESC, id DESC LIMIT 24;"
+    ) {
+      let snapshot = try decoded(ResetForecastSnapshot.self, from: data)
+      if sourceURL == nil || snapshot.sourceURL == sourceURL { return snapshot }
+    }
+    return nil
+  }
+
+  public func save(resetForecastPool state: ResetForecastPoolState) throws {
+    try executePrepared(
+      "INSERT OR REPLACE INTO reset_forecast_pool(id, payload) VALUES(1, ?);",
+      bindings: [.blob(try encoded(state))]
+    )
+  }
+
+  public func resetForecastPoolState() throws -> ResetForecastPoolState? {
+    guard let data = try firstBlob("SELECT payload FROM reset_forecast_pool WHERE id = 1;")
     else { return nil }
-    return try decoded(ResetForecastSnapshot.self, from: data)
+    return try decoded(ResetForecastPoolState.self, from: data)
   }
 
   public func save(tasks: [CodexTask]) throws {

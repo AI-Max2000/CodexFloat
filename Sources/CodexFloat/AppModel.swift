@@ -37,6 +37,7 @@ final class AppModel: ObservableObject {
   @Published private(set) var feedFetchedAt: Date?
   @Published private(set) var resetForecast: ResetForecastSnapshot?
   @Published private(set) var resetForecastError: String?
+  @Published private(set) var resetForecastPoolReport: ResetForecastPoolReport?
   @Published private(set) var tasks: [CodexTask] = []
   @Published private(set) var taskError: String?
   @Published private(set) var isRefreshingQuota = false
@@ -74,7 +75,7 @@ final class AppModel: ObservableObject {
     store: SQLiteStore,
     quotaClient: CodexAppServerClient = CodexAppServerClient(),
     feedMonitor: TiboFeedMonitor = TiboFeedMonitor(),
-    resetForecastSource: any ResetForecastSource = PublicResetForecastSource(),
+    resetForecastSource: any ResetForecastSource = ResetForecastPool(),
     taskRuntimeIndex: CodexTaskRuntimeIndex = CodexTaskRuntimeIndex(),
     settings: AppSettings = AppSettings(),
     resetNavigator: ManualResetNavigator = ManualResetNavigator(),
@@ -274,6 +275,11 @@ final class AppModel: ObservableObject {
       resetForecastUpdatedAt: resetForecast?.sourceUpdatedAt,
       resetForecastConfidence: resetForecast?.confidence.rawValue,
       resetForecastError: sanitized(resetForecastError),
+      resetForecastSource: resetForecast?.sourceURL.host,
+      resetForecastSelection: resetForecastPoolReport?.selection.rawValue,
+      resetForecastSources: resetForecastPoolReport.map { report in
+        Dictionary(uniqueKeysWithValues: report.sources.map { ($0.name, $0.status.rawValue) })
+      },
       cachedTaskCount: tasks.count,
       taskError: sanitized(taskError ?? settings.taskMonitoringError),
       databaseBytes: await store.databaseSize()
@@ -301,10 +307,24 @@ final class AppModel: ObservableObject {
       feedFetchedAt = posts.map(\.fetchedAt).max()
       feedSourceName = posts.first?.source
       hasFeedBaseline = !posts.isEmpty
-      resetForecast = try await store.latestResetForecast()
       tasks = try await store.recentTasks(limit: 50)
     } catch {
       quotaError = strings.format(.errorCacheRead, error.localizedDescription)
+    }
+    // Forecast-cache corruption must not block quota/tasks, or vice versa.
+    do {
+      if let pool = resetForecastSource as? ResetForecastPool {
+        let saved = try await store.resetForecastPoolState()
+        let legacy = saved == nil
+          ? try await store.latestResetForecast(sourceURL: resetForecastSource.sourceURL) : nil
+        await pool.restore(saved, legacySnapshot: legacy)
+        resetForecast = await pool.cachedForecast()
+        resetForecastPoolReport = await pool.report()
+      } else {
+        resetForecast = try await store.latestResetForecast(sourceURL: resetForecastSource.sourceURL)
+      }
+    } catch {
+      resetForecastError = strings.format(.errorCacheRead, error.localizedDescription)
     }
   }
 
@@ -485,17 +505,44 @@ final class AppModel: ObservableObject {
     }
   }
 
-  private func refreshResetForecast() async {
+  func refreshResetForecast() async {
     guard !isRefreshingResetForecast else { return }
     isRefreshingResetForecast = true
     defer { isRefreshingResetForecast = false }
+    if !networkAvailable, let pool = resetForecastSource as? ResetForecastPool {
+      resetForecast = await pool.useOfflineCache()
+      resetForecastPoolReport = await pool.report()
+      resetForecastError = resetForecast == nil ? strings.text(.forecastPoolUnavailable) : nil
+      return
+    }
     do {
       let snapshot = try await resetForecastSource.fetch()
       resetForecast = snapshot
       resetForecastError = nil
-      try await store.save(resetForecast: snapshot)
+      do {
+        try await store.save(resetForecast: snapshot)
+      } catch {
+        logger.error("重置预测缓存保存失败：\(error.localizedDescription, privacy: .public)")
+      }
+      logger.info("重置预测显示来源：\(snapshot.sourceURL.host ?? "unknown", privacy: .public)")
     } catch {
-      resetForecastError = strings.format(.errorForecastUnavailable, error.localizedDescription)
+      if error is CancellationError { return }
+      if resetForecastSource is ResetForecastPool {
+        // A stale/contradicted cache must not survive an all-source failure.
+        resetForecast = nil
+        resetForecastError = strings.text(.forecastPoolUnavailable)
+      } else {
+        resetForecastError = strings.format(.errorForecastUnavailable, error.localizedDescription)
+      }
+      logger.error("重置预测刷新失败：\(error.localizedDescription, privacy: .public)")
+    }
+    if let pool = resetForecastSource as? ResetForecastPool {
+      resetForecastPoolReport = await pool.report()
+      do {
+        try await store.save(resetForecastPool: pool.persistedState())
+      } catch {
+        logger.error("重置预测选源状态保存失败：\(error.localizedDescription, privacy: .public)")
+      }
     }
   }
 
@@ -676,6 +723,9 @@ private struct DiagnosticsReport: Codable {
   let resetForecastUpdatedAt: Date?
   let resetForecastConfidence: String?
   let resetForecastError: String?
+  let resetForecastSource: String?
+  let resetForecastSelection: String?
+  let resetForecastSources: [String: String]?
   let cachedTaskCount: Int
   let taskError: String?
   let databaseBytes: Int64
