@@ -32,7 +32,7 @@ jobs:
         run: swift build -c release -Xswiftc -warnings-as-errors
       - name: Preserve native screenshot failures
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-screenshot-failures-${{ github.sha }}
           path: artifacts/native-failures/
@@ -58,7 +58,7 @@ jobs:
           architectures="$(lipo -archs dist/CodexFloat.app/Contents/MacOS/CodexFloat)"
           [[ " ${architectures} " == *" arm64 "* ]]
           [[ " ${architectures} " == *" x86_64 "* ]]
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: CodexFloat-unsigned-${{ github.sha }}
           path: dist/CodexFloat.app
